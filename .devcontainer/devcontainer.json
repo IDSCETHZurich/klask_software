@@ -1,0 +1,32 @@
+{
+    "name": "KLASK SDK",
+    "image": "klask_ros_software_sdk:local",
+    "workspaceFolder": "/opt/ros/klask_ws",
+    "workspaceMount": "source=${localWorkspaceFolder}/ros/src,target=/opt/ros/klask_ws/src,type=bind",
+    "runArgs": [
+        "--rm",
+        "--env=DISPLAY",
+        "--env=QT_X11_NO_MITSHM=1",
+        "--device=/dev/video0:/dev/video0",
+        "--network=host",
+        "--cap-add=NET_ADMIN",
+        "--cap-add=NET_RAW",
+        "--name=klask_ros_software_sdk_container_local"
+    ],
+    "mounts": [
+        "source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+        "source=klask_ros_software_build,target=/opt/ros/klask_ws/build,type=volume",
+        "source=klask_ros_software_install,target=/opt/ros/klask_ws/install,type=volume",
+        "source=klask_ros_software_log,target=/opt/ros/klask_ws/log,type=volume",
+        "source=${localWorkspaceFolder}/ros/.vscode,target=/opt/ros/klask_ws/.vscode,type=bind"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-vscode.cpptools-extension-pack",
+                "ms-python.black-formatter"
+            ]
+        }
+    }
+}
