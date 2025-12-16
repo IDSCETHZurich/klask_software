@@ -1,0 +1,41 @@
+# --------------------
+# Commit Message Template (Conventional Commits)
+# --------------------
+#
+# Format:
+# <type>(optional scope): <short summary>
+#
+# Types: feat | fix | docs | style | refactor | perf | test | chore | ci | build
+#
+# Examples:
+#   feat(auth): add login with Google
+#   fix(api): handle null responses
+#   docs(readme): update installation guide
+#
+# --------------------
+# Commit Message Start
+# --------------------
+
+<type>(<scope>): <summary>
+
+# --------------------
+# Commit Body
+# --------------------
+# Provide additional context:
+# - Explain why the change was needed
+# - Describe how the change solves the problem
+# - Mention any side effects or trade-offs
+# - Reference issues/PRs (e.g., "Closes #123")
+#
+# Wrap the body text at 72 characters.
+#
+
+# --------------------
+# Footer (optional)
+# --------------------
+# - BREAKING CHANGE: describe change and migration steps
+# - Closes/Fixes/Refs: issue numbers
+#
+# Example:
+# BREAKING CHANGE: API now requires authentication headers.
+# Closes #42
