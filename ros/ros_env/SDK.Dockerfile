@@ -15,6 +15,13 @@ RUN apt update && apt install -y \
 
 # install python packages
 RUN pip install --upgrade pip
+# Remove conflicting distutils-installed package (sympy) to avoid installation issues
+RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
+    /usr/local/lib/python3*/dist-packages/sympy* \
+    /usr/lib/python3.*/dist-packages/sympy* || true
+# Install PyTorch with CUDA support
+RUN pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# Install other requirements
 COPY ros_env/requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
