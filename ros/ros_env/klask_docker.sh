@@ -108,6 +108,7 @@ cmd_run() {
             --network=host \
             --cap-add=NET_ADMIN \
             --cap-add=NET_RAW \
+            --gpus all \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}"
     else
@@ -125,6 +126,7 @@ cmd_run() {
             --network=host \
             --cap-add=NET_ADMIN \
             --cap-add=NET_RAW \
+            --gpus all \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}"
     fi
