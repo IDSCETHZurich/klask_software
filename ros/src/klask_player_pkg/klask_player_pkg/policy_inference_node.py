@@ -16,6 +16,7 @@ class Player(Node):
         self.device = device
 
         # Coordinate transformation constants (from SimToReal wrapper)
+        # TODO: Why is this even necessary?
         self.real_to_sim_factor_short_side = 1.0 / 1150.0
         self.real_to_sim_factor_long_side = 0.0008285
         self.sim_board_dimensions = (0.32, 0.44)
@@ -243,7 +244,9 @@ class Player(Node):
 def main(args=None):
     rclpy.init(args=args)
 
+    # TODO: Add this as a parameter and also add the left/right player option
     checkpoint_path = "src/klask_player_pkg/klask_player_pkg/klask.pth"
+    # TODO: Additionally load the model class also from file or parameter
 
     try:
         player = Player(checkpoint_path=checkpoint_path, device="cpu")
