@@ -11,7 +11,7 @@
         "--network=host",
         "--cap-add=NET_ADMIN",
         "--cap-add=NET_RAW",
-        "--gpus all",
+        "--gpus=all",
         "--name=klask_ros_software_sdk_container_local"
     ],
     "mounts": [
