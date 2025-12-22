@@ -19,10 +19,10 @@ class Player(Node):
         # TODO: Why is this even necessary?
         self.real_to_sim_factor_short_side = 1.0 / 1150.0
         self.real_to_sim_factor_long_side = 0.0008285
-        self.sim_board_dimensions = (0.32, 0.44)
+        self.sim_board_dimensions = (0.32, 0.44) # board = 320mm x 420mm
 
         # Initialize network
-        self.policy_net = PolicyNetwork(obs_dim=20, action_dim=2, hidden_dim=32)
+        self.policy_net = PolicyNetwork()
         self.load_checkpoint(checkpoint_path)
         self.policy_net.to(self.device)
         self.policy_net.eval()
@@ -56,30 +56,29 @@ class Player(Node):
                 checkpoint_path, map_location=self.device, weights_only=False
             )  # TODO: maybe remove weights_only once everything is working and we are able to regenerate the ccheckpoint from the original training
 
-            # RL-Games typically saves checkpoints with 'model' key
+            # RL-Games saves checkpoints with 'model' key
             if "model" in checkpoint:
                 state_dict = checkpoint["model"]
             else:
                 state_dict = checkpoint
 
-            # Filter and load only actor weights (we don't need critic for inference)
-            actor_state_dict = {}
+            # Map checkpoint keys to our network structure
+            model_state_dict = {}
             for key, value in state_dict.items():
-                if "actor" in key or "a2c_network" in key:
-                    # Remove prefixes to match our network structure
-                    new_key = key.replace("a2c_network.actor.", "").replace(
-                        "actor.", ""
-                    )
-                    actor_state_dict[new_key] = value
+                if key.startswith("a2c_network."):
+                    # Remove "a2c_network." prefix to match our structure
+                    new_key = key.replace("a2c_network.", "")
+                    model_state_dict[new_key] = value
 
-            # If no actor-specific keys found, try loading the full state dict
-            if not actor_state_dict:
-                self.get_logger().warn(
-                    "No actor-specific keys found, attempting full state dict load"
-                )
-                self.policy_net.load_state_dict(state_dict, strict=False)
-            else:
-                self.policy_net.actor.load_state_dict(actor_state_dict, strict=False)
+            # Load the mapped state dict
+            missing_keys, unexpected_keys = self.policy_net.load_state_dict(
+                model_state_dict, strict=False
+            )
+
+            if missing_keys:
+                self.get_logger().warn(f"Missing keys: {missing_keys}")
+            if unexpected_keys:
+                self.get_logger().warn(f"Unexpected keys: {unexpected_keys}")
 
             self.get_logger().info("Checkpoint loaded successfully")
 

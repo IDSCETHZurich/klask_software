@@ -1,5 +1,5 @@
 {
-    "name": "KLASK SDK",
+    "name": "Klask Software SDK",
     "image": "klask_ros_software_sdk:local",
     "workspaceFolder": "/opt/ros/klask_ws",
     "workspaceMount": "source=${localWorkspaceFolder}/ros/src,target=/opt/ros/klask_ws/src,type=bind",
@@ -7,10 +7,8 @@
         "--rm",
         "--env=DISPLAY",
         "--env=QT_X11_NO_MITSHM=1",
-        "--device=/dev/video0:/dev/video0",
-        "--network=host",
-        "--cap-add=NET_ADMIN",
-        "--cap-add=NET_RAW",
+        "--env=ROS_DOMAIN_ID=0",
+        "--network=bridge",
         "--gpus=all",
         "--name=klask_ros_software_sdk_container_local"
     ],
