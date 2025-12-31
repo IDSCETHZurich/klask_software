@@ -10,13 +10,35 @@ from geometry_msgs.msg import Twist
 class Player(Node):
     """ROS2 node for Klask policy inference."""
 
-    def __init__(self, checkpoint_path, device="cpu"):
+    def __init__(self):
         super().__init__("klask_policy_inference_node")
 
-        self.device = device
+        # Declare ROS parameters
+        self.declare_parameter(
+            "checkpoint_path", "src/klask_player_pkg/klask_player_pkg/klask.pth"
+        )
+        self.declare_parameter("device", "cpu")
+        self.declare_parameter("board_width", 0.32)
+        self.declare_parameter("board_height", 0.44)
+        self.declare_parameter("player_side", "left")
+        self.declare_parameter("state_topic", "/board_state")
+        self.declare_parameter("cmd_vel_topic", "cmd_vel/left_player_checked")
+        self.declare_parameter("subscription_queue_size", 1)
+        self.declare_parameter("publisher_queue_size", 1)
+
+        # Get parameters
+        checkpoint_path = self.get_parameter("checkpoint_path").value
+        self.device = self.get_parameter("device").value
+        board_width = self.get_parameter("board_width").value
+        board_height = self.get_parameter("board_height").value
+        self.player_side = self.get_parameter("player_side").value
+        state_topic = self.get_parameter("state_topic").value
+        cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
+        sub_queue_size = self.get_parameter("subscription_queue_size").value
+        pub_queue_size = self.get_parameter("publisher_queue_size").value
 
         # Board dimensions for coordinate centering
-        self.board_dimensions = (0.32, 0.44)  # board = 320mm x 420mm
+        self.board_dimensions = (board_width, board_height)
 
         # Initialize network
         self.policy_net = PolicyNetwork()
@@ -27,14 +49,12 @@ class Player(Node):
         # ROS2 setup
         self.subscription = self.create_subscription(
             State,
-            "/board_state",
+            state_topic,
             self.observation_callback,
-            1,  # TODO: change to parameter
+            sub_queue_size,
         )
 
-        self.publisher = self.create_publisher(
-            Twist, "cmd_vel/left_player_checked", 1
-        )  # TODO: change to parameter and add multi player support
+        self.publisher = self.create_publisher(Twist, cmd_vel_topic, pub_queue_size)
 
         # State variables
         self.latest_obs = None
@@ -43,6 +63,12 @@ class Player(Node):
             f"Policy inference node initialized with checkpoint: {checkpoint_path}"
         )
         self.get_logger().info(f"Using device: {self.device}")
+        self.get_logger().info(
+            f"Board dimensions: {self.board_dimensions[0]}m x {self.board_dimensions[1]}m"
+        )
+        self.get_logger().info(f"Player side: {self.player_side}")
+        self.get_logger().info(f"Subscribed to: {state_topic}")
+        self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
 
     def load_checkpoint(self, checkpoint_path):
         """Load model weights from checkpoint file."""
@@ -240,12 +266,8 @@ class Player(Node):
 def main(args=None):
     rclpy.init(args=args)
 
-    # TODO: Add this as a parameter and also add the left/right player option
-    checkpoint_path = "src/klask_player_pkg/klask_player_pkg/klask.pth"
-    # TODO: Additionally load the model class also from file or parameter
-
     try:
-        player = Player(checkpoint_path=checkpoint_path, device="cpu")
+        player = Player()
         rclpy.spin(player)
     except KeyboardInterrupt:
         pass
