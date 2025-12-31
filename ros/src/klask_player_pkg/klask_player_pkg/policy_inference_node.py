@@ -217,88 +217,121 @@ class Player(Node):
 
     def observation_callback(self, msg: State):
         """Process incoming observations and publish actions."""
-        # Extract observations from message (already in engineering units: meters and m/s)
-        obs_with_goals = self.map_observations(msg)
-
-        # Center coordinates to board origin
-        obs_centered = self.center_coordinates(obs_with_goals)
+        # Extract and transform observations (handles centering and player-side transformation)
+        obs_base = self.map_observations(msg)
 
         # Compute additional features
-        obs_full = self.add_additional_features(obs_centered)
+        obs_full = self.add_additional_features(obs_base)
 
         # Get action from policy
         action = self.get_action(obs_full)
+
+        # Negate action for right player (flip direction)
+        if self.player_side == "right":
+            action = -action
 
         # Publish action
         self.publish_action(action)
 
     def map_observations(self, msg: State):
-        """Extract observations from StampedPolygon message."""
+        """Extract observations from State message, center coordinates, and transform for player side.
 
-        # TODO: Map observations depending on how is playing (left/right)
-        obs = np.array(
-            [
-                msg.right_peg.position.y,
-                msg.right_peg.position.x,  # right peg pos
-                msg.right_peg.velocity.y,
-                msg.right_peg.velocity.x,  # right peg vel
-                msg.left_peg.position.y,
-                msg.left_peg.position.x,  # left peg pos
-                msg.left_peg.velocity.y,
-                msg.left_peg.velocity.x,  # left peg vel
-                msg.ball.position.y,
-                msg.ball.position.x,  # ball pos
-                msg.ball.velocity.y,
-                msg.ball.velocity.x,  # ball vel
-                msg.right_goal_pos.y,
-                msg.right_goal_pos.x,  # right goal pos
-                msg.left_goal_pos.y,
-                msg.left_goal_pos.x,  # left goal pos
-            ],
-            dtype=np.float32,
+        Returns:
+            16-dimensional centered observation array ready for feature computation.
+            Format: [player_pos, player_vel, opponent_pos, opponent_vel, ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
+        """
+        # Extract raw observations (engineering units: meters and m/s)
+        right_peg_pos = np.array(
+            [msg.right_peg.position.y, msg.right_peg.position.x], dtype=np.float32
+        )
+        right_peg_vel = np.array(
+            [msg.right_peg.velocity.y, msg.right_peg.velocity.x], dtype=np.float32
+        )
+        left_peg_pos = np.array(
+            [msg.left_peg.position.y, msg.left_peg.position.x], dtype=np.float32
+        )
+        left_peg_vel = np.array(
+            [msg.left_peg.velocity.y, msg.left_peg.velocity.x], dtype=np.float32
+        )
+        ball_pos = np.array(
+            [msg.ball.position.y, msg.ball.position.x], dtype=np.float32
+        )
+        ball_vel = np.array(
+            [msg.ball.velocity.y, msg.ball.velocity.x], dtype=np.float32
+        )
+        right_goal_pos = np.array(
+            [msg.right_goal_pos.y, msg.right_goal_pos.x], dtype=np.float32
+        )
+        left_goal_pos = np.array(
+            [msg.left_goal_pos.y, msg.left_goal_pos.x], dtype=np.float32
         )
 
+        # Center all positions to board origin
+        center_offset = np.array(
+            [self.board_dim_height / 2.0, self.board_dim_width / 2.0], dtype=np.float32
+        )
+        right_peg_pos -= center_offset
+        left_peg_pos -= center_offset
+        ball_pos -= center_offset
+        right_goal_pos -= center_offset
+        left_goal_pos -= center_offset
+
+        # Map to player/opponent based on player_side
+        if self.player_side == "left":
+            # Player controls left peg, opponent is right peg
+            obs = np.concatenate(
+                [
+                    left_peg_pos,
+                    left_peg_vel,  # player (left peg)
+                    right_peg_pos,
+                    right_peg_vel,  # opponent (right peg)
+                    ball_pos,
+                    ball_vel,  # ball
+                    left_goal_pos,
+                    right_goal_pos,  # player's goal, opponent's goal
+                ]
+            )
+        else:  # right
+            # Player controls right peg, opponent is left peg
+            # Transform to opponent's perspective: swap player/opponent and negate
+            obs = np.concatenate(
+                [
+                    -right_peg_pos,
+                    -right_peg_vel,  # right peg becomes player (negated)
+                    -left_peg_pos,
+                    -left_peg_vel,  # left peg becomes opponent (negated)
+                    -ball_pos,
+                    -ball_vel,  # ball (negated)
+                    -right_goal_pos,
+                    -left_goal_pos,  # player's goal, opponent's goal (swapped and negated)
+                ]
+            )
+
         return obs
-
-    def center_coordinates(self, obs):
-        """Center all position coordinates to board origin.
-
-        Shifts all positions by half the board dimensions so that (0,0) is at the board center.
-        Velocities are not affected.
-        """
-        obs_centered = obs.copy()
-
-        # Center Y positions (indices: 0, 4, 8, 12, 14)
-        obs_centered[[0, 4, 8, 12, 14]] -= self.board_dim_height / 2.0
-
-        # Center X positions (indices: 1, 5, 9, 13, 15)
-        obs_centered[[1, 5, 9, 13, 15]] -= self.board_dim_width / 2.0
-
-        return obs_centered
 
     def add_additional_features(self, obs):
         """Add geometric features (angles and distances) to observations.
 
-        Input: 16 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, goal_1_pos, goal_2_pos]
+        Input: 16 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
         Output: 20 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, 8 features]
 
-        Note: All coordinates are in engineering units (meters and m/s).
+        Note: All coordinates are already centered and in engineering units (meters and m/s).
         """
-        # Extract components (already in sim coordinates)
+        # Extract components
         player_pos = obs[0:2]
         opponent_pos = obs[4:6]
         ball_pos = obs[8:10]
-        goal_1_pos = obs[12:14]
-        goal_2_pos = obs[14:16]
+        goal_player_pos = obs[12:14]
+        goal_opponent_pos = obs[14:16]
 
         # Compute vectors
-        vec_to_opp_goal = goal_2_pos - player_pos
+        vec_to_opp_goal = goal_opponent_pos - player_pos
         vec_to_ball = ball_pos - player_pos
-        vec_opp_to_goal = goal_1_pos - opponent_pos
+        vec_opp_to_goal = goal_player_pos - opponent_pos
         vec_ball_to_opp = ball_pos - opponent_pos
         vec_opp_to_player = opponent_pos - player_pos
-        vec_ball_to_goal = goal_1_pos - ball_pos
-        vec_ball_to_oppgoal = goal_2_pos - ball_pos
+        vec_ball_to_goal = goal_player_pos - ball_pos
+        vec_ball_to_opp_goal = goal_opponent_pos - ball_pos
 
         # Compute angles
         angle_pegball_pegoppgoal = self.angle_between_vectors(
@@ -316,7 +349,7 @@ class Player(Node):
 
         # Compute distances
         distance_ball_goal = np.linalg.norm(vec_ball_to_goal)
-        distance_ball_oppgoal = np.linalg.norm(vec_ball_to_oppgoal)
+        distance_ball_oppgoal = np.linalg.norm(vec_ball_to_opp_goal)
         distance_ball_player = np.linalg.norm(vec_to_ball)
         distance_ball_opp = np.linalg.norm(vec_ball_to_opp)
 
