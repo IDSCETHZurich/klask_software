@@ -1,6 +1,11 @@
 import rclpy
 import torch
 import numpy as np
+import os
+import urllib.request
+import zipfile
+import tempfile
+from pathlib import Path
 from rclpy.node import Node
 from .policy_network import PolicyNetwork
 from klask_interfaces.msg import State
@@ -14,23 +19,34 @@ class Player(Node):
         super().__init__("klask_policy_inference_node")
 
         # Declare ROS parameters
+        self.declare_parameter("weights_filename", "klask.pth")
         self.declare_parameter(
-            "checkpoint_path", "src/klask_player_pkg/klask_player_pkg/klask.pth"
+            "weights_zip_url",
+            "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download",
         )
         self.declare_parameter("device", "cpu")
-        self.declare_parameter("board_width", 0.32)
-        self.declare_parameter("board_height", 0.44)
+        self.declare_parameter("board_width", 0.42)
+        self.declare_parameter("board_height", 0.32)
         self.declare_parameter("player_side", "left")
         self.declare_parameter("state_topic", "/board_state")
-        self.declare_parameter("cmd_vel_topic", "cmd_vel/left_player_checked")
+        self.declare_parameter("cmd_vel_topic", "cmd_vel/left_player")
         self.declare_parameter("subscription_queue_size", 1)
         self.declare_parameter("publisher_queue_size", 1)
 
         # Get parameters
-        checkpoint_path = self.get_parameter("checkpoint_path").value
+        weights_filename = self.get_parameter("weights_filename").value
+        weights_zip_url = self.get_parameter("weights_zip_url").value
+
+        # Set nn_weights directory path
+        nn_weights_dir = (
+            Path(__file__).resolve().parent.parent.parent.parent / "nn_weights"
+        )
+
+        # Ensure weights are available
+        checkpoint_path = self.ensure_weights_available(
+            weights_filename, weights_zip_url, nn_weights_dir
+        )
         self.device = self.get_parameter("device").value
-        board_width = self.get_parameter("board_width").value
-        board_height = self.get_parameter("board_height").value
         self.player_side = self.get_parameter("player_side").value
         state_topic = self.get_parameter("state_topic").value
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").value
@@ -38,7 +54,8 @@ class Player(Node):
         pub_queue_size = self.get_parameter("publisher_queue_size").value
 
         # Board dimensions for coordinate centering
-        self.board_dimensions = (board_width, board_height)
+        self.board_dim_width = self.get_parameter("board_width").value
+        self.board_dim_height = self.get_parameter("board_height").value
 
         # Initialize network
         self.policy_net = PolicyNetwork()
@@ -64,11 +81,100 @@ class Player(Node):
         )
         self.get_logger().info(f"Using device: {self.device}")
         self.get_logger().info(
-            f"Board dimensions: {self.board_dimensions[0]}m x {self.board_dimensions[1]}m"
+            f"Board dimensions: {self.board_dim_width}m x {self.board_dim_height}m"
         )
         self.get_logger().info(f"Player side: {self.player_side}")
         self.get_logger().info(f"Subscribed to: {state_topic}")
         self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
+
+    def ensure_weights_available(self, weights_filename, zip_url, nn_weights_dir):
+        """Ensure weights file exists, download and extract zip if necessary."""
+        # nn_weights_dir is already a Path object
+        weights_dir = nn_weights_dir
+        weights_path = weights_dir / weights_filename
+
+        # Check if the specific weights file exists
+        if weights_path.exists():
+            self.get_logger().info(f"Weights file found: {weights_path}")
+            return str(weights_path)
+
+        # Download and extract the zip file
+        self.get_logger().info(
+            f"Weights file not found. Downloading weights zip from: {zip_url}"
+        )
+        self.download_and_extract_weights(zip_url, weights_dir)
+
+        # Verify the weights file exists after extraction
+        if weights_path.exists():
+            self.get_logger().info(f"Weights extracted successfully: {weights_path}")
+            return str(weights_path)
+        else:
+            # List available files
+            available_files = [f.name for f in weights_dir.glob("*.pth")]
+            error_msg = f"Weights file '{weights_filename}' not found after extraction. Available files: {available_files}"
+            self.get_logger().error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+    def download_and_extract_weights(self, url, destination_dir):
+        """Download weights zip file and extract to destination directory."""
+        try:
+            # Create a temporary file for the zip download
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_file:
+                tmp_path = tmp_file.name
+
+                self.get_logger().info(
+                    f"Downloading weights zip to temporary file: {tmp_path}"
+                )
+
+                # Create a request with headers to handle redirects
+                req = urllib.request.Request(url)
+                req.add_header("User-Agent", "Mozilla/5.0")
+
+                with urllib.request.urlopen(req) as response:
+                    # Read and save the zip file
+                    chunk_size = 8192
+                    total_size = 0
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        tmp_file.write(chunk)
+                        total_size += len(chunk)
+                        if total_size % (chunk_size * 100) == 0:  # Log every ~800KB
+                            self.get_logger().info(
+                                f"Downloaded {total_size / 1024 / 1024:.2f} MB..."
+                            )
+
+                self.get_logger().info(
+                    f"Download complete: {total_size / 1024 / 1024:.2f} MB"
+                )
+
+            # Extract the zip file
+            self.get_logger().info(f"Extracting weights to: {destination_dir}")
+            with zipfile.ZipFile(tmp_path, "r") as zip_ref:
+                zip_ref.extractall(destination_dir)
+                extracted_files = zip_ref.namelist()
+                self.get_logger().info(f"Extracted {len(extracted_files)} files")
+
+            # Check if everything was extracted into a single root folder and move contents up
+            root_items = list(destination_dir.iterdir())
+            if len(root_items) == 1 and root_items[0].is_dir():
+                # Move contents up one level
+                nested_dir = root_items[0]
+                for item in nested_dir.iterdir():
+                    item.rename(destination_dir / item.name)
+                nested_dir.rmdir()
+
+            # Clean up temporary file
+            os.unlink(tmp_path)
+            self.get_logger().info("Extraction complete")
+
+        except Exception as e:
+            self.get_logger().error(f"Failed to download and extract weights: {e}")
+            # Clean up temporary file if it exists
+            if "tmp_path" in locals() and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
 
     def load_checkpoint(self, checkpoint_path):
         """Load model weights from checkpoint file."""
@@ -163,10 +269,10 @@ class Player(Node):
         obs_centered = obs.copy()
 
         # Center Y positions (indices: 0, 4, 8, 12, 14)
-        obs_centered[[0, 4, 8, 12, 14]] -= self.board_dimensions[0] / 2.0
+        obs_centered[[0, 4, 8, 12, 14]] -= self.board_dim_height / 2.0
 
         # Center X positions (indices: 1, 5, 9, 13, 15)
-        obs_centered[[1, 5, 9, 13, 15]] -= self.board_dimensions[1] / 2.0
+        obs_centered[[1, 5, 9, 13, 15]] -= self.board_dim_width / 2.0
 
         return obs_centered
 

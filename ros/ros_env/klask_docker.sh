@@ -105,6 +105,7 @@ cmd_run() {
             --env="QT_X11_NO_MITSHM=1" \
             --env="ROS_DOMAIN_ID=0" \
             --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+            --volume="${CONTAINER_NAME}_nn_weights:/opt/ros/klask_ws/nn_weights:rw" \
             --gpus=all \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}"
@@ -120,6 +121,7 @@ cmd_run() {
             --volume="${CONTAINER_NAME}_build:/opt/ros/klask_ws/build:rw" \
             --volume="${CONTAINER_NAME}_install:/opt/ros/klask_ws/install:rw" \
             --volume="${CONTAINER_NAME}_log:/opt/ros/klask_ws/log:rw" \
+            --volume="${CONTAINER_NAME}_nn_weights:/opt/ros/klask_ws/nn_weights:rw" \
             --gpus=all \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}"
