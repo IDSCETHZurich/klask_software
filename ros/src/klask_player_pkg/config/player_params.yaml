@@ -1,0 +1,20 @@
+klask_policy_inference_node:
+  ros__parameters:
+    # Model configuration
+    checkpoint_path: "src/klask_player_pkg/klask_player_pkg/klask.pth"
+    device: "cpu"  # Options: "cpu", "cuda"
+    
+    # Board configuration
+    board_width: 0.32   # meters (short side)
+    board_height: 0.44  # meters (long side)
+    
+    # Player configuration
+    player_side: "left"  # Options: "left", "right"
+    
+    # ROS topic configuration
+    state_topic: "/board_state"
+    cmd_vel_topic: "cmd_vel/left_player_checked"
+    
+    # QoS settings
+    subscription_queue_size: 1
+    publisher_queue_size: 1
