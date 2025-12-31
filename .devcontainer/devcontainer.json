@@ -17,6 +17,7 @@
         "source=klask_ros_software_build,target=/opt/ros/klask_ws/build,type=volume",
         "source=klask_ros_software_install,target=/opt/ros/klask_ws/install,type=volume",
         "source=klask_ros_software_log,target=/opt/ros/klask_ws/log,type=volume",
+        "source=klask_ros_software_nn_weights,target=/opt/ros/klask_ws/nn_weights,type=volume",
         "source=${localWorkspaceFolder}/ros/.vscode,target=/opt/ros/klask_ws/.vscode,type=bind"
     ],
     "customizations": {
