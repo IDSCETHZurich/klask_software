@@ -15,11 +15,8 @@ class Player(Node):
 
         self.device = device
 
-        # Coordinate transformation constants (from SimToReal wrapper)
-        # TODO: Why is this even necessary?
-        self.real_to_sim_factor_short_side = 1.0 / 1150.0
-        self.real_to_sim_factor_long_side = 0.0008285
-        self.sim_board_dimensions = (0.32, 0.44) # board = 320mm x 420mm
+        # Board dimensions for coordinate centering
+        self.board_dimensions = (0.32, 0.44)  # board = 320mm x 420mm
 
         # Initialize network
         self.policy_net = PolicyNetwork()
@@ -88,19 +85,17 @@ class Player(Node):
 
     def observation_callback(self, msg: State):
         """Process incoming observations and publish actions."""
-        # Extract raw observations from message
+        # Extract observations from message (already in engineering units: meters and m/s)
         obs_with_goals = self.map_observations(msg)
 
-        # Transform to simulation coordinates
-        obs_with_goals_sim = self.transform_to_sim_coordinates(obs_with_goals)
+        # Center coordinates to board origin
+        obs_centered = self.center_coordinates(obs_with_goals)
 
         # Compute additional features
-        obs_full = self.add_additional_features(obs_with_goals_sim)
+        obs_full = self.add_additional_features(obs_centered)
 
         # Get action from policy
         action = self.get_action(obs_full)
-
-        # TODO: no back transformation???
 
         # Publish action
         self.publish_action(action)
@@ -133,19 +128,21 @@ class Player(Node):
 
         return obs
 
-    def transform_to_sim_coordinates(self, obs):
-        """Transform real-world coordinates to simulation coordinates."""
-        obs_converted = obs.copy()
+    def center_coordinates(self, obs):
+        """Center all position coordinates to board origin.
 
-        # Scale all positions and velocities (all even indices are y/short-side, odd are x/long-side)
-        obs_converted[::2] *= self.real_to_sim_factor_short_side
-        obs_converted[1::2] *= self.real_to_sim_factor_long_side
+        Shifts all positions by half the board dimensions so that (0,0) is at the board center.
+        Velocities are not affected.
+        """
+        obs_centered = obs.copy()
 
-        # Center the board (positions only)
-        obs_converted[[0, 4, 8, 12, 14]] -= self.sim_board_dimensions[0] / 2.0
-        obs_converted[[1, 5, 9, 13, 15]] -= self.sim_board_dimensions[1] / 2.0
+        # Center Y positions (indices: 0, 4, 8, 12, 14)
+        obs_centered[[0, 4, 8, 12, 14]] -= self.board_dimensions[0] / 2.0
 
-        return obs_converted
+        # Center X positions (indices: 1, 5, 9, 13, 15)
+        obs_centered[[1, 5, 9, 13, 15]] -= self.board_dimensions[1] / 2.0
+
+        return obs_centered
 
     def add_additional_features(self, obs):
         """Add geometric features (angles and distances) to observations.
@@ -153,7 +150,7 @@ class Player(Node):
         Input: 16 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, goal_1_pos, goal_2_pos]
         Output: 20 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, 8 features]
 
-        Note: All coordinates are already in simulation space.
+        Note: All coordinates are in engineering units (meters and m/s).
         """
         # Extract components (already in sim coordinates)
         player_pos = obs[0:2]
