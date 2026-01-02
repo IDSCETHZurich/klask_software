@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "name": "Debug policy_inference_node (ROS2)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "klask_player_pkg.policy_inference_node",
+            "console": "integratedTerminal"
+        },
+    ]
+}
