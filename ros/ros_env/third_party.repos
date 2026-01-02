@@ -2,4 +2,4 @@ repositories:
   klask_hardware:
     type: git
     url: git@github.com-MeierTobias:IDSCETHZurich/klask_hardware.git
-    version: 8cd9a535f062bb0db587604e6fc6f75f3a3e6718
+    version: b73c4e839f23c9bb65c76335a20f05fbb4d6fea9
