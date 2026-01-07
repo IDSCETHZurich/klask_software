@@ -68,7 +68,7 @@ def generate_launch_description():
     # Declare launch arguments
     player_arg = DeclareLaunchArgument(
         "player",
-        default_value="left",
+        default_value="both",
         description="Which player to launch: left, right, or both",
     )
 
