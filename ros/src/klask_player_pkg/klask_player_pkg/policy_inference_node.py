@@ -19,7 +19,7 @@ class Player(Node):
         super().__init__("klask_policy_inference_node")
 
         # Declare ROS parameters
-        self.declare_parameter("weights_filename", "klask.pth")
+        self.declare_parameter("weights_filename", "klask_ac_nn_v0.0.pth")
         self.declare_parameter(
             "weights_zip_url",
             "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download",
@@ -29,9 +29,11 @@ class Player(Node):
         self.declare_parameter("board_height", 0.32)
         self.declare_parameter("player_side", "left")
         self.declare_parameter("state_topic", "/board_state")
-        self.declare_parameter("cmd_vel_topic", "cmd_vel/left_player")
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel/left_player")
         self.declare_parameter("subscription_queue_size", 1)
         self.declare_parameter("publisher_queue_size", 1)
+        self.declare_parameter("clip_actions", 0.2)
+        self.declare_parameter("enable_action_rescaling", True)
 
         # Get parameters
         weights_filename = self.get_parameter("weights_filename").value
@@ -57,8 +59,16 @@ class Player(Node):
         self.board_dim_width = self.get_parameter("board_width").value
         self.board_dim_height = self.get_parameter("board_height").value
 
+        # Action rescaling parameters
+        clip_actions = self.get_parameter("clip_actions").value
+        enable_rescaling = self.get_parameter("enable_action_rescaling").value
+
         # Initialize network
-        self.policy_net = PolicyNetwork()
+        self.policy_net = PolicyNetwork(
+            actions_low=-clip_actions,
+            actions_high=clip_actions,
+            clip_actions=enable_rescaling,
+        )
         self.load_checkpoint(checkpoint_path)
         self.policy_net.to(self.device)
         self.policy_net.eval()
@@ -84,6 +94,9 @@ class Player(Node):
             f"Board dimensions: {self.board_dim_width}m x {self.board_dim_height}m"
         )
         self.get_logger().info(f"Player side: {self.player_side}")
+        self.get_logger().info(
+            f"Action rescaling: {enable_rescaling} (clip_actions: {clip_actions})"
+        )
         self.get_logger().info(f"Subscribed to: {state_topic}")
         self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
 
@@ -102,6 +115,25 @@ class Player(Node):
         self.get_logger().info(
             f"Weights file not found. Downloading weights zip from: {zip_url}"
         )
+
+        # Clean existing contents if directory exists
+        if weights_dir.exists():
+            import shutil
+
+            self.get_logger().info(
+                f"Cleaning existing weights directory contents: {weights_dir}"
+            )
+            for item in weights_dir.iterdir():
+                try:
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
+                except Exception as e:
+                    self.get_logger().warn(f"Could not remove {item}: {e}")
+        else:
+            weights_dir.mkdir(parents=True, exist_ok=True)
+
         self.download_and_extract_weights(zip_url, weights_dir)
 
         # Verify the weights file exists after extraction
@@ -183,7 +215,7 @@ class Player(Node):
         try:
             checkpoint = torch.load(
                 checkpoint_path, map_location=self.device, weights_only=False
-            )  # TODO: maybe remove weights_only once everything is working and we are able to regenerate the ccheckpoint from the original training
+            )  # TODO: maybe remove weights_only once everything is working and we are able to regenerate the checkpoint from the original training
 
             # RL-Games saves checkpoints with 'model' key
             if "model" in checkpoint:
@@ -198,6 +230,10 @@ class Player(Node):
                     # Remove "a2c_network." prefix to match our structure
                     new_key = key.replace("a2c_network.", "")
                     model_state_dict[new_key] = value
+                elif key.startswith("running_mean_std."):
+                    # Extract observation normalization parameters
+                    new_key = key.replace("running_mean_std.", "")
+                    model_state_dict[new_key] = value
 
             # Load the mapped state dict
             missing_keys, unexpected_keys = self.policy_net.load_state_dict(
@@ -208,6 +244,17 @@ class Player(Node):
                 self.get_logger().warn(f"Missing keys: {missing_keys}")
             if unexpected_keys:
                 self.get_logger().warn(f"Unexpected keys: {unexpected_keys}")
+
+            # Log normalization statistics
+            if hasattr(self.policy_net, "running_mean") and hasattr(
+                self.policy_net, "running_var"
+            ):
+                self.get_logger().info(
+                    f"Loaded observation normalization: mean range [{self.policy_net.running_mean.min():.4f}, "
+                    f"{self.policy_net.running_mean.max():.4f}], "
+                    f"var range [{self.policy_net.running_var.min():.4f}, "
+                    f"{self.policy_net.running_var.max():.4f}]"
+                )
 
             self.get_logger().info("Checkpoint loaded successfully")
 
@@ -330,7 +377,8 @@ class Player(Node):
         vec_opp_to_goal = goal_player_pos - opponent_pos
         vec_ball_to_opp = ball_pos - opponent_pos
         vec_opp_to_player = opponent_pos - player_pos
-        vec_ball_to_goal = goal_player_pos - ball_pos
+        # vec_ball_to_goal = goal_player_pos - ball_pos
+        vec_ball_to_goal = goal_player_pos - player_pos  # Match the original bug!
         vec_ball_to_opp_goal = goal_opponent_pos - ball_pos
 
         # Compute angles
@@ -369,7 +417,9 @@ class Player(Node):
         )
 
         # Return first 12 values (original obs without goals) + 8 features = 20 values
-        return np.concatenate([obs[:12], extra_features])
+        full_obs = np.concatenate([obs[:12], extra_features])
+
+        return full_obs
 
     def angle_between_vectors(self, v1, v2):
         """Compute angle between two vectors."""
