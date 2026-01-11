@@ -6,14 +6,14 @@ import rclpy
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import UInt64
-from klask_interfaces.msg import StampedPolygon, StampedInt32, State
+from klask_interfaces.msg import StampedPolygon, State
+from klask_interfaces_py import BoardState
 from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridge
 
 from .kalman_filter import KalmanFilter
 from .utils import create_point_from_list
 from .debug import draw_object_with_velocity, plot_image
-from .board_state import BoardState
 
 
 class StateEstimatorNode(Node):
