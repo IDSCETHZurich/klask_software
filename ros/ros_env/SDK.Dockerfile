@@ -8,6 +8,7 @@ RUN apt update && apt install -y \
     ros-${ROS_DISTRO}-foxglove-bridge \
     python3-pip \
     python3-opencv \
+    libboost-python-dev \
     iproute2 \
     can-utils \
     openssh-client && \

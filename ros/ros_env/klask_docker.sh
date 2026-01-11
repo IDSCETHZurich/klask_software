@@ -100,6 +100,7 @@ cmd_run() {
 
     if [[ "$MODE" == "runtime" ]]; then
         # Runtime container: pre-built workspace, minimal volumes
+        xhost +local:root
         docker run -it -d --rm \
             --env="DISPLAY" \
             --env="QT_X11_NO_MITSHM=1" \
@@ -111,6 +112,7 @@ cmd_run() {
             "${IMAGE_NAME}:${TAG}"
     else
         # SDK container: development mode with source mounts
+        xhost +local:root
         docker run -it -d --rm \
             --env="DISPLAY" \
             --env="QT_X11_NO_MITSHM=1" \

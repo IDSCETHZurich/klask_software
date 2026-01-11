@@ -1,7 +1,7 @@
-klask_policy_inference_node:
+/**:
   ros__parameters:
     # Model configuration
-    weights_filename: "klask_ac_nn_v0.0.pth"  # Name of the model file to load from nn_weights folder
+    weights_filename: "klask_ac_nn_v0.1.pth"  # Name of the model file to load from nn_weights folder
     weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download"  # URL to download weights zip
     device: "cpu"  # Options: "cpu", "cuda"
     
@@ -10,11 +10,15 @@ klask_policy_inference_node:
     board_height: 0.32  # meters
     
     # Player configuration
-    player_side: "left"  # Options: "left", "right"
+    player_side: "left"  # Options: "left", "right" - will be overridden by launch file
+    
+    # Action rescaling configuration
+    clip_actions: 0.2  # Action clipping bound
+    enable_action_rescaling: true  # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
     
     # ROS topic configuration
     state_topic: "/board_state"
-    cmd_vel_topic: "cmd_vel/left_player"
+    cmd_vel_topic: "cmd_vel/left_player"  # Will be overridden by launch file
     
     # QoS settings
     subscription_queue_size: 1

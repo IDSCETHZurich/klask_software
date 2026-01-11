@@ -1,6 +1,13 @@
 {
     "configurations": [
         {
+            "name": "Debug state_estimator_node (ROS2)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "klask_state_estimator_pkg.state_estimator_node",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Debug policy_inference_node (ROS2)",
             "type": "debugpy",
             "request": "launch",
