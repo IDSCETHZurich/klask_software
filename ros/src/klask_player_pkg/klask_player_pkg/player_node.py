@@ -10,7 +10,7 @@ class Player(Node):
     """ROS2 node for Klask policy inference."""
 
     def __init__(self):
-        super().__init__("klask_policy_inference_node")
+        super().__init__("klask_player_node")
 
         # Declare ROS parameters
         self.declare_parameter("weights_filename", "klask_ac_nn_v0.0.pth")

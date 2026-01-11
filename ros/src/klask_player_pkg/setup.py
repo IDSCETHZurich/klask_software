@@ -27,7 +27,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "policy_inference_node = klask_player_pkg.policy_inference_node:main"
+            "player_node = klask_player_pkg.player_node:main"
         ],
     },
 )

@@ -24,8 +24,8 @@ def launch_setup(context, *args, **kwargs):
     if player in ["left", "both"]:
         left_player_node = Node(
             package="klask_player_pkg",
-            executable="policy_inference_node",
-            name="klask_policy_inference_left",
+            executable="player_node",
+            name="klask_player_left",
             parameters=[
                 params_file,
                 {"player_side": "left", "cmd_vel_topic": "cmd_vel/left_player"},
@@ -39,8 +39,8 @@ def launch_setup(context, *args, **kwargs):
     if player in ["right", "both"]:
         right_player_node = Node(
             package="klask_player_pkg",
-            executable="policy_inference_node",
-            name="klask_policy_inference_right",
+            executable="player_node",
+            name="klask_player_right",
             parameters=[
                 params_file,
                 {"player_side": "right", "cmd_vel_topic": "cmd_vel/right_player"},
