@@ -18,7 +18,10 @@
         "source=klask_ros_software_install,target=/opt/ros/klask_ws/install,type=volume",
         "source=klask_ros_software_log,target=/opt/ros/klask_ws/log,type=volume",
         "source=klask_ros_software_nn_weights,target=/opt/ros/klask_ws/nn_weights,type=volume",
-        "source=${localWorkspaceFolder}/ros/.vscode,target=/opt/ros/klask_ws/.vscode,type=bind"
+        "source=${localWorkspaceFolder}/ros/.vscode,target=/opt/ros/klask_ws/.vscode,type=bind",
+        "source=${localWorkspaceFolder}/ros/.clang-format,target=/opt/ros/klask_ws/.clang-format,type=bind",
+        "source=${localWorkspaceFolder}/ros/.flake8,target=/opt/ros/klask_ws/.flake8,type=bind",
+        "source=${localWorkspaceFolder}/ros/pyproject.toml,target=/opt/ros/klask_ws/pyproject.toml,type=bind"
     ],
     "initializeCommand": "xhost +local:root",
     "customizations": {
@@ -26,8 +29,57 @@
             "extensions": [
                 "ms-python.python",
                 "ms-vscode.cpptools-extension-pack",
-                "ms-python.black-formatter"
-            ]
+                "ms-python.black-formatter",
+                "ms-python.flake8",
+                "xaver.clang-format",
+                "redhat.vscode-yaml",
+                "charliermarsh.ruff"
+            ],
+            "settings": {
+                "editor.formatOnSave": true,
+                "[cpp]": {
+                    "editor.defaultFormatter": "xaver.clang-format"
+                },
+                "[c]": {
+                    "editor.defaultFormatter": "xaver.clang-format"
+                },
+                "[python]": {
+                    "editor.defaultFormatter": "ms-python.black-formatter",
+                    "editor.codeActionsOnSave": {
+                        "source.organizeImports": "explicit"
+                    }
+                },
+                "python.linting.enabled": true,
+                "python.linting.flake8Enabled": true,
+                "python.linting.pylintEnabled": false,
+                "black-formatter.args": [
+                    "--line-length=120"
+                ],
+                "flake8.args": [
+                    "--max-line-length=120"
+                ],
+                "ruff.enable": true,
+                "ruff.lint.enable": true,
+                "ruff.format.enable": false,
+                "ruff.organizeImports": false,
+                "ruff.fixAll": false,
+                "python.analysis.extraPaths": [
+                    "/opt/ros/klask_ws/install/klask_interfaces/local/lib/python3.10/dist-packages",
+                    "/opt/ros/klask_ws/install/klask_player_pkg/local/lib/python3.10/dist-packages",
+                    "/opt/ros/klask_ws/install/klask_state_estimator_pkg/local/lib/python3.10/dist-packages",
+                    "/opt/ros/humble/lib/python3.10/site-packages",
+                    "/opt/ros/humble/local/lib/python3.10/dist-packages"
+                ],
+                "[json]": {
+                    "editor.defaultFormatter": "vscode.json-language-features"
+                },
+                "[jsonc]": {
+                    "editor.defaultFormatter": "vscode.json-language-features"
+                },
+                "[yaml]": {
+                    "editor.defaultFormatter": "redhat.vscode-yaml"
+                }
+            }
         }
     }
 }

@@ -6,11 +6,12 @@ RUN apt update && apt install -y \
     ros-${ROS_DISTRO}-rqt \
     ros-${ROS_DISTRO}-rqt-common-plugins \
     ros-${ROS_DISTRO}-foxglove-bridge \
+    gdb \
     python3-pip \
     python3-opencv \
     libboost-python-dev \
     iproute2 \
-    can-utils \
+    clang-format \
     openssh-client && \
     rm -rf /var/lib/apt/lists/*
 

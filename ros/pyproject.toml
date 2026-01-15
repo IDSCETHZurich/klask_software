@@ -1,0 +1,22 @@
+[tool.black]
+line-length = 120
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["D"]
+ignore = []
+extend-select = []
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+# Suppress deprecation warning from ament-flake8 0.12.14 using old importlib_metadata API
+# This warning comes from ROS 2 tooling, not our code, and will be fixed in future ROS versions
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:SelectableGroups dict interface is deprecated"
+]
