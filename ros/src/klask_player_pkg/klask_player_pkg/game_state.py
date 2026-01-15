@@ -6,21 +6,27 @@ from enum import IntEnum, auto
 class GameState(IntEnum):
     """States for the game state machine."""
 
-    INITIALIZING = auto()      # Checking calibration status
-    HOMING = auto()             # Waiting for homing to complete
-    WAITING_FOR_READY = auto()  # Waiting for board to be ready
-    PLAYING = auto()            # Normal gameplay - publishing actions
-    GOAL_DETECTED = auto()      # Ball in goal - waiting for reset
-    PEG_IN_GOAL = auto()        # Peg in goal - paused until clear
-    RESETTING = auto()          # Calling homing service with delay
+    INITIALIZING = auto()
+    STATE_ESTIMATOR_READY = auto()
+    HW_CALIBRATED = auto()
+    HW_UNCALIBRATED = auto()
+    HW_READY = auto()
+    REQUESTING_HOME_CAL = auto()
+    HOMING = auto()
+    INTERACTION_DELAY = auto()
+    PLAYING = auto()
+    GAME_OVER = auto()
+    MOVE_MAGNET = auto()
+    WAIT_FOR_PEG_RESET = auto()
+    UNKNOWN_BOARD_STATE = auto()
 
 
 def state_name(state: GameState) -> str:
     """Get human-readable name for a state.
-    
+
     Args:
         state: The game state
-        
+
     Returns:
         String name of the state
     """

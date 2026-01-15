@@ -1,20 +1,28 @@
+"""ROS2 node for Klask policy inference."""
+
 import rclpy
+import numpy as np
 from pathlib import Path
 from rclpy.node import Node
+from rclpy.action import ActionClient
 from .policy_inference import PolicyInference
-from .game_state import GameState, state_name
+from .game_state import GameState
 from klask_interfaces.msg import State
-from klask_interfaces.srv import GetCalibrationStatus, HomeAndCalibrate
+from klask_interfaces.srv import GetCalibrationStatus, IsPlayerHomed
+from klask_interfaces.action import HomeAndCalibrate
 from klask_interfaces_py import BoardState
 from geometry_msgs.msg import Twist
-from std_srvs.srv import Trigger
 
 
 class Player(Node):
     """ROS2 node for Klask policy inference."""
 
     def __init__(self):
+        """Initialize the player node."""
         super().__init__("klask_player_node")
+
+        # State machine variables
+        self.game_state = self.last_game_state = GameState.INITIALIZING
 
         # Declare ROS parameters
         self.declare_parameter("weights_filename", "klask_ac_nn_v0.0.pth")
@@ -34,17 +42,13 @@ class Player(Node):
         self.declare_parameter("enable_action_rescaling", True)
 
         # State machine parameters
-        self.declare_parameter("check_calibration_on_startup", True)
-        self.declare_parameter("enable_auto_reset", True)
-        self.declare_parameter("goal_reset_delay_seconds", 2.0)
-        self.declare_parameter("peg_goal_pause_enabled", True)
+        self.declare_parameter("interaction_delay", 2.0)
 
         # Motor commander service parameters
         self.declare_parameter("motor_commander_namespace", "/motor_commander")
-        self.declare_parameter(
-            "get_calibration_status_service", "get_calibration_status"
-        )
-        self.declare_parameter("home_and_calibrate_service", "home_and_calibrate")
+        self.declare_parameter("get_calibration_status_service_name", "get_calibration_status")
+        self.declare_parameter("home_and_calibrate_action_name", "home_and_calibrate")
+        self.declare_parameter("is_player_homed_service_name", "is_player_homed")
 
         # Get parameters
         state_topic = self.get_parameter("state_topic").value
@@ -54,32 +58,37 @@ class Player(Node):
 
         # State machine parameters
         self.player_side = self.get_parameter("player_side").value
-        self.check_calibration_on_startup = self.get_parameter(
-            "check_calibration_on_startup"
-        ).value
-        self.enable_auto_reset = self.get_parameter("enable_auto_reset").value
-        self.goal_reset_delay = self.get_parameter("goal_reset_delay_seconds").value
-        self.peg_goal_pause_enabled = self.get_parameter("peg_goal_pause_enabled").value
+        self.interaction_delay = self.get_parameter("interaction_delay").value
+
+        if self.player_side == "left":
+            self.PEG_IN_OWN_GOAL_FLAG = BoardState.PEG_IN_LEFT_GOAL
+            self.center_direction = 1
+        else:
+            self.PEG_IN_OWN_GOAL_FLAG = BoardState.PEG_IN_RIGHT_GOAL
+            self.center_direction = -1
 
         # Motor commander service names
         motor_namespace = self.get_parameter("motor_commander_namespace").value
-        calibration_service = self.get_parameter("get_calibration_status_service").value
-        home_calibrate_service = self.get_parameter("home_and_calibrate_service").value
+        calibration_status_service_name = self.get_parameter("get_calibration_status_service_name").value
+        home_calibrate_action = self.get_parameter("home_and_calibrate_action_name").value
+        self.is_player_homed_service_name = self.get_parameter("is_player_homed_service_name").value
 
         # Build full service names based on player side
-        self.calibration_status_service_name = (
-            f"{motor_namespace}/{self.player_side}/{calibration_service}"
-        )
-        self.home_and_calibrate_service_name = (
-            f"{motor_namespace}/{self.player_side}/{home_calibrate_service}"
-        )
+        self.calibration_status_service_name = f"{motor_namespace}/{self.player_side}/{calibration_status_service_name}"
+        self.home_and_calibrate_action_name = f"{motor_namespace}/{self.player_side}/{home_calibrate_action}"
+
+        # Action handles
+        self.homing_goal_handle = None
+
+        # Timers
+        self.interaction_delay_timer = None
+        self.magnet_recover_timer = None
 
         # Initialize policy inference class
         self.policy = PolicyInference(
             weights_filename=self.get_parameter("weights_filename").value,
             weights_zip_url=self.get_parameter("weights_zip_url").value,
-            nn_weights_dir=Path(__file__).resolve().parent.parent.parent.parent
-            / "nn_weights",
+            nn_weights_dir=Path(__file__).resolve().parent.parent.parent.parent / "nn_weights",
             device=self.get_parameter("device").value,
             clip_actions=self.get_parameter("clip_actions").value,
             enable_action_rescaling=self.get_parameter("enable_action_rescaling").value,
@@ -99,86 +108,120 @@ class Player(Node):
 
         self.publisher = self.create_publisher(Twist, cmd_vel_topic, pub_queue_size)
 
-        # State machine variables
-        self.game_state = GameState.INITIALIZING
-        self.reset_timer = None
-
         # Service clients for motor commander
-        self.calibration_client = self.create_client(
-            GetCalibrationStatus, self.calibration_status_service_name
-        )
-        self.home_calibrate_client = self.create_client(
-            HomeAndCalibrate, self.home_and_calibrate_service_name
-        )
+        self.calibration_status_client = self.create_client(GetCalibrationStatus, self.calibration_status_service_name)
+        self.homed_client = self.create_client(IsPlayerHomed, self.is_player_homed_service_name)
+        self.home_calibrate_client = ActionClient(self, HomeAndCalibrate, self.home_and_calibrate_action_name)
 
         self.get_logger().info(f"Player side: {self.player_side}")
         self.get_logger().info(f"Subscribed to: {state_topic}")
         self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
-        self.get_logger().info(
-            f"Calibration service: {self.calibration_status_service_name}"
-        )
-        self.get_logger().info(
-            f"Home/Calibrate service: {self.home_and_calibrate_service_name}"
-        )
-        self.get_logger().info(f"Auto-reset enabled: {self.enable_auto_reset}")
-        self.get_logger().info(f"Goal reset delay: {self.goal_reset_delay}s")
-
-        # Start state machine by checking calibration
-        if self.check_calibration_on_startup:
-            self.get_logger().info("Checking calibration status...")
-            # Schedule one-time calibration check
-            self.create_timer(0.5, self._check_calibration_status)
-        else:
-            # Skip calibration check and go straight to waiting for board ready
-            self.get_logger().info("Skipping calibration check")
-            self.game_state = GameState.WAITING_FOR_READY
+        self.get_logger().info(f"Calibration service: {self.calibration_status_service_name}")
+        self.get_logger().info(f"Home/Calibrate service: {self.home_and_calibrate_action_name}")
 
     def observation_callback(self, msg: State):
         """Process incoming observations and publish actions."""
+        if self.last_game_state != self.game_state:
+            self.get_logger().info(f"State transition: {self.last_game_state.name} -> {self.game_state.name}")
 
         # State machine logic
         if self.game_state == GameState.INITIALIZING:
-            # Waiting for calibration check or skipping it
-            return
+            if msg.status & BoardState.READY:
+                self.game_state = GameState.STATE_ESTIMATOR_READY
+
+        elif self.game_state == GameState.STATE_ESTIMATOR_READY:
+            self._check_calibration_status()
+
+        elif self.game_state == GameState.HW_CALIBRATED:
+            self._check_at_home()
+
+        elif self.game_state == GameState.HW_UNCALIBRATED:
+            self._check_homing_in_progress()
+
+        elif self.game_state == GameState.REQUESTING_HOME_CAL:
+            self._start_homing()
+
         elif self.game_state == GameState.HOMING:
             # Waiting for homing to complete
-            return
-        elif self.game_state == GameState.WAITING_FOR_READY:
-            # Check if board is ready
-            if msg.status & BoardState.READY:
-                self.get_logger().info("Board ready - transitioning to PLAYING")
-                self.game_state = GameState.PLAYING
-        elif self.game_state == GameState.PLAYING:
-            # Check for goal conditions
-            if self.enable_auto_reset:
-                if msg.status & (
-                    BoardState.BALL_IN_LEFT_GOAL | BoardState.BALL_IN_RIGHT_GOAL
-                ):
-                    self._handle_goal_detected()
-                    return
-                elif self.peg_goal_pause_enabled and msg.status & (
-                    BoardState.PEG_IN_LEFT_GOAL | BoardState.PEG_IN_RIGHT_GOAL
-                ):
-                    self._handle_peg_in_goal()
-                    return
+            pass
 
-            # Normal gameplay - compute and publish action
-            action = self.policy.get_action(msg)
-            self.publish_action(action)
-        elif self.game_state == GameState.GOAL_DETECTED:
-            # Waiting for reset timer
-            pass
-        elif self.game_state == GameState.PEG_IN_GOAL:
-            # Paused until peg removed
-            if not (
-                msg.status
-                & (BoardState.PEG_IN_LEFT_GOAL | BoardState.PEG_IN_RIGHT_GOAL)
+        elif self.game_state == GameState.HW_READY:
+            if not (msg.status & BoardState.READY):
+                self.game_state = GameState.UNKNOWN_BOARD_STATE
+
+            elif msg.status & (
+                BoardState.BALL_IN_LEFT_GOAL
+                | BoardState.BALL_IN_RIGHT_GOAL
+                | BoardState.PEG_IN_LEFT_GOAL
+                | BoardState.PEG_IN_RIGHT_GOAL
             ):
-                self.get_logger().info("Peg removed - resuming play")
-                self.game_state = GameState.PLAYING
-        elif self.game_state == GameState.RESETTING:
-            # Waiting for reset to complete
-            pass
+                # Wait until board is ready again
+                pass
+            else:
+                self.game_state = GameState.INTERACTION_DELAY
+
+        elif self.game_state == GameState.INTERACTION_DELAY:
+            # Wait for interaction delay to pass
+            if self.interaction_delay_timer is None:
+                self.get_logger().info(f"Starting interaction delay timer ({self.interaction_delay}s)")
+                self.interaction_delay_timer = self.create_timer(
+                    self.interaction_delay, self._interaction_delay_complete
+                )
+
+        elif self.game_state == GameState.PLAYING:
+            action = np.array([0.0, 0.0])
+
+            if not (msg.status & BoardState.READY):
+                self.game_state = GameState.UNKNOWN_BOARD_STATE
+
+            elif msg.status & (
+                BoardState.BALL_IN_LEFT_GOAL
+                | BoardState.BALL_IN_RIGHT_GOAL
+                | BoardState.PEG_IN_LEFT_GOAL
+                | BoardState.PEG_IN_RIGHT_GOAL
+            ):
+                self.game_state = GameState.GAME_OVER
+            else:
+                # Normal gameplay - compute and publish action
+                action = self.policy.get_action(msg)
+
+            self.publish_action(action)
+
+        elif self.game_state == GameState.GAME_OVER:
+            # stop motors
+            self.publish_action(np.array([0.0, 0.0]))
+
+            if msg.status & self.PEG_IN_OWN_GOAL_FLAG:
+                self.game_state = GameState.MOVE_MAGNET
+            else:
+                self.game_state = GameState.REQUESTING_HOME_CAL
+
+        elif self.game_state == GameState.UNKNOWN_BOARD_STATE:
+            self.publish_action(np.array([0.0, 0.0]))
+            if msg.status & BoardState.READY:
+                self.game_state = GameState.STATE_ESTIMATOR_READY
+
+        elif self.game_state == GameState.MOVE_MAGNET:
+            # Move magnet towards center
+            recovery_time = 1.0  # seconds
+            recovery_speed = 0.01  # m/s
+            self.publish_action(np.array([0.0, recovery_speed * self.center_direction]))
+
+            if self.magnet_recover_timer is None:
+                self.get_logger().info(f"Starting moving the magnet away from goal for {recovery_time}s")
+                self.magnet_recover_timer = self.create_timer(recovery_time, self._magnet_recover_complete)
+
+        elif self.game_state == GameState.WAIT_FOR_PEG_RESET:
+            # Wait for the peg to be removed from goal
+            self.publish_action(np.array([0.0, 0.0]))
+            if msg.status & self.PEG_IN_OWN_GOAL_FLAG:
+                # still in goal, wait
+                pass
+            else:
+                self.game_state = GameState.REQUESTING_HOME_CAL
+
+        # remember last state for logging
+        self.last_game_state = self.game_state
 
     def publish_action(self, action):
         """Publish action as velocity command."""
@@ -189,13 +232,12 @@ class Player(Node):
 
     def _check_calibration_status(self):
         """Check if motor controllers are calibrated."""
-        if not self.calibration_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().warn("Calibration service not available, skipping check")
-            self.game_state = GameState.WAITING_FOR_READY
+        if not self.calibration_status_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn("Calibration service not available!")
             return
 
         request = GetCalibrationStatus.Request()
-        future = self.calibration_client.call_async(request)
+        future = self.calibration_status_client.call_async(request)
         future.add_done_callback(self._calibration_status_callback)
 
     def _calibration_status_callback(self, future):
@@ -203,102 +245,107 @@ class Player(Node):
         try:
             response = future.result()
             if response.calibrated:
-                self.get_logger().info("Motors already calibrated")
-                self.game_state = GameState.WAITING_FOR_READY
+                self.get_logger().info("Motors are calibrated")
+                self.game_state = GameState.HW_CALIBRATED
             else:
-                self.get_logger().info("Motors not calibrated - starting homing")
-                self._start_homing()
+                self.get_logger().info("Motors not calibrated")
+                self.game_state = GameState.HW_UNCALIBRATED
         except Exception as e:
             self.get_logger().error(f"Calibration check failed: {e}")
-            self.game_state = GameState.WAITING_FOR_READY
+
+    def _check_at_home(self):
+        """Check if the peg is at the home position."""
+        if not self.homed_client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().warn("Homed service not available!")
+            return
+
+        request = IsPlayerHomed.Request()
+        future = self.homed_client.call_async(request)
+        future.add_done_callback(self._at_home_status_callback)
+
+    def _at_home_status_callback(self, future):
+        """Handle at-home status response."""
+        try:
+            response = future.result()
+            if response.is_homed:
+                self.get_logger().info("Player is at home position")
+                self.game_state = GameState.HW_READY
+            else:
+                self.get_logger().info("Player not at home position")
+                self.game_state = GameState.REQUESTING_HOME_CAL
+        except Exception as e:
+            self.get_logger().error(f"Homed check failed: {e}")
+
+    def _interaction_delay_complete(self):
+        """Handle interaction delay completion."""
+        if self.interaction_delay_timer is not None:
+            self.interaction_delay_timer.cancel()
+            self.interaction_delay_timer = None
+
+        self.game_state = GameState.PLAYING
+
+    def _check_homing_in_progress(self):
+        """Check if the homing action is in progress."""
+        if self.homing_goal_handle is not None and self.homing_goal_handle.status in [1, 2]:  # ACCEPTED or EXECUTING
+            self.get_logger().info("Homing action already in progress")
+            self.game_state = GameState.HOMING
+        else:
+            self.get_logger().info("No active homing action, requesting homing")
+            self.game_state = GameState.REQUESTING_HOME_CAL
 
     def _start_homing(self):
         """Start homing and calibration sequence."""
         self.game_state = GameState.HOMING
 
-        if not self.home_calibrate_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().error("Home/Calibrate service not available")
-            self.game_state = GameState.WAITING_FOR_READY
+        if not self.home_calibrate_client.wait_for_server(timeout_sec=1.0):
+            self.get_logger().error("Home/Calibrate action not available")
             return
 
-        request = HomeAndCalibrate.Request()
-        future = self.home_calibrate_client.call_async(request)
-        future.add_done_callback(self._homing_complete_callback)
-        self.get_logger().info("Homing in progress...")
+        goal_msg = HomeAndCalibrate.Goal()
+        send_goal_future = self.home_calibrate_client.send_goal_async(goal_msg)
+        send_goal_future.add_done_callback(self._homing_goal_response_callback)
+        self.get_logger().info("Homing request sent...")
+
+    def _homing_goal_response_callback(self, future):
+        """Handle homing and calibration goal acceptance."""
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error("Homing goal rejected")
+            self.homing_goal_handle = None
+            self.game_state = GameState.STATE_ESTIMATOR_READY
+            return
+
+        self.get_logger().info("Homing goal accepted - now in progress")
+        self.homing_goal_handle = goal_handle
+        self.game_state = GameState.HOMING
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(self._homing_complete_callback)
 
     def _homing_complete_callback(self, future):
-        """Handle homing completion."""
+        """Handle homing and calibration completion."""
         try:
-            response = future.result()
-            if response.success:
+            result = future.result().result
+            if result.success:
                 self.get_logger().info("Homing completed successfully")
             else:
-                self.get_logger().warn(f"Homing failed: {response.message}")
+                self.get_logger().warn(f"Homing failed: {result.message}")
         except Exception as e:
-            self.get_logger().error(f"Homing service call failed: {e}")
+            self.get_logger().error(f"Homing action call failed: {e}")
 
-        self.game_state = GameState.WAITING_FOR_READY
+        self.homing_goal_handle = None
+        self.game_state = GameState.STATE_ESTIMATOR_READY
 
-    def _handle_goal_detected(self):
-        """Handle goal detection - start reset delay timer."""
-        self.get_logger().info(f"Goal detected! Resetting in {self.goal_reset_delay}s")
-        self.game_state = GameState.GOAL_DETECTED
+    def _magnet_recover_complete(self):
+        """Handle magnet recovery completion."""
+        if self.magnet_recover_timer is not None:
+            self.magnet_recover_timer.cancel()
+            self.magnet_recover_timer = None
 
-        # Stop motion immediately
-        cmd_vel_msg = Twist()
-        cmd_vel_msg.linear.x = 0.0
-        cmd_vel_msg.linear.y = 0.0
-        self.publisher.publish(cmd_vel_msg)
-
-        # Start reset timer
-        if self.reset_timer is not None:
-            self.reset_timer.cancel()
-        self.reset_timer = self.create_timer(self.goal_reset_delay, self._reset_game)
-
-    def _handle_peg_in_goal(self):
-        """Handle peg in goal - pause gameplay."""
-        self.get_logger().info("Peg in goal! Pausing gameplay")
-        self.game_state = GameState.PEG_IN_GOAL
-
-        # Stop motion immediately
-        cmd_vel_msg = Twist()
-        cmd_vel_msg.linear.x = 0.0
-        cmd_vel_msg.linear.y = 0.0
-        self.publisher.publish(cmd_vel_msg)
-
-    def _reset_game(self):
-        """Reset the game by homing the motors."""
-        if self.reset_timer is not None:
-            self.reset_timer.cancel()
-            self.reset_timer = None
-
-        self.get_logger().info("Starting game reset...")
-        self.game_state = GameState.RESETTING
-
-        if not self.home_calibrate_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().error("Home/Calibrate service not available for reset")
-            self.game_state = GameState.WAITING_FOR_READY
-            return
-
-        request = HomeAndCalibrate.Request()
-        future = self.home_calibrate_client.call_async(request)
-        future.add_done_callback(self._reset_complete_callback)
-
-    def _reset_complete_callback(self, future):
-        """Handle reset completion."""
-        try:
-            response = future.result()
-            if response.success:
-                self.get_logger().info("Reset completed successfully")
-            else:
-                self.get_logger().warn(f"Reset failed: {response.message}")
-        except Exception as e:
-            self.get_logger().error(f"Reset service call failed: {e}")
-
-        self.game_state = GameState.WAITING_FOR_READY
+        self.game_state = GameState.WAIT_FOR_PEG_RESET
 
 
 def main(args=None):
+    """Main entry point for the player node."""
     rclpy.init(args=args)
 
     try:

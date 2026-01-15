@@ -1,39 +1,36 @@
 /**:
   ros__parameters:
     # Model configuration
-    weights_filename: "klask_ac_nn_v0.0.pth"  # Name of the model file to load from nn_weights folder
-    weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download"  # URL to download weights zip
-    device: "cpu"  # Options: "cpu", "cuda"
-    
+    weights_filename: "klask_ac_nn_v0.0.pth" # Name of the model file to load from nn_weights folder
+    weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
+    device: "cpu" # Options: "cpu", "cuda"
+
     # Board configuration
-    board_width: 0.42   # meters
-    board_height: 0.32  # meters
-    
+    board_width: 0.42 # meters
+    board_height: 0.32 # meters
+
     # Player configuration
-    player_side: "left"  # Options: "left", "right" - will be overridden by launch file
-    
+    player_side: "left" # Options: "left", "right" - will be overridden by launch file
+
     # Action rescaling configuration
-    clip_actions: 0.2  # Action clipping bound
-    enable_action_rescaling: true  # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
-    
+    clip_actions: 0.2 # Action clipping bound
+    enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
+
     # State machine configuration
-    check_calibration_on_startup: true  # Check calibration status on node startup
-    enable_auto_reset: true  # Automatically reset game after goal detection
-    goal_reset_delay_seconds: 2.0  # Delay before resetting after goal (seconds)
-    peg_goal_pause_enabled: true  # Pause gameplay when peg enters goal
-    
+    interaction_delay: 2.0 # Delay in seconds befor continuing after the user interacted with the board
+
     # Motor commander configuration
-    motor_commander_namespace: "/motor_commander"  # Namespace for motor commander services
-    home_peg_service_name: "home_peg"  # Service name for homing peg
-    calibrate_encoders_service_name: "calibrate_encoders"  # Service name for encoder calibration
-    get_calibration_status_service_name: "get_calibration_status"  # Service name for checking calibration
-    home_and_calibrate_service_name: "home_and_calibrate"  # Service name for combined home and calibrate
-    
+    motor_commander_namespace: "/motor_commander" # Namespace for motor commander services
+    calibrate_encoders_service_name: "calibrate_encoders" # Service name for encoder calibration
+    get_calibration_status_service_name: "get_calibration_status" # Service name for checking calibration
+    is_player_homed_service_name: "is_player_homed" # Service name to check if peg is homed
+    home_peg_action_name: "home_peg" # Action name for homing peg
+    home_and_calibrate_action_name: "home_and_calibrate" # Action name for combined home and calibrate
+
     # ROS topic configuration
     state_topic: "/board_state"
-    cmd_vel_topic: "cmd_vel/left_player"  # Will be overridden by launch file
-    
+    cmd_vel_topic: "cmd_vel/left_player" # Will be overridden by launch file
+
     # QoS settings
     subscription_queue_size: 1
     publisher_queue_size: 1
-
