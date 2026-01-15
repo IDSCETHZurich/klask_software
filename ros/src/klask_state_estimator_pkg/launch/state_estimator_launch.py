@@ -5,8 +5,7 @@ configuration files.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
-from launch.event_handlers import OnProcessStart
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -14,7 +13,6 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     """Generate launch description for state estimation system."""
-
     # Declare launch arguments for config files
     state_estimator_params_arg = DeclareLaunchArgument(
         "state_estimator_params_file",

@@ -10,7 +10,7 @@
     # Pixel to Engineering Units (EU) Conversion
     # ============================================
     # Board physical dimensions in meters
-    board_width_meters: 0.42  # Physical board width (default: 0.42m)
+    board_width_meters: 0.42 # Physical board width (default: 0.42m)
     board_height_meters: 0.32 # Physical board height (default: 0.32m)
     # Board pixel dimensions are determined automatically from the received
     # cropped/warped camera image. Conversion factors are computed as:

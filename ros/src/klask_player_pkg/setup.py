@@ -1,3 +1,5 @@
+"""Setup script for the klask_player_pkg package."""
+
 from setuptools import find_packages, setup
 import os
 from glob import glob
@@ -26,8 +28,6 @@ setup(
         ],
     },
     entry_points={
-        "console_scripts": [
-            "player_node = klask_player_pkg.player_node:main"
-        ],
+        "console_scripts": ["player_node = klask_player_pkg.player_node:main"],
     },
 )

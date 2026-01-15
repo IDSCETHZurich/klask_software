@@ -37,6 +37,9 @@ class PolicyInference:
             device: Device to run inference on ('cpu' or 'cuda')
             clip_actions: Action clipping bound
             enable_action_rescaling: Enable action rescaling
+            player_side: 'left' or 'right' player side
+            board_dim_width: Board width in meters
+            board_dim_height: Board height in meters
             logger: Optional logger object with info(), warn(), error() methods
         """
         self.logger = logger
@@ -46,9 +49,7 @@ class PolicyInference:
         self.board_dim_height = board_dim_height
 
         # Ensure weights are available
-        checkpoint_path = self._ensure_weights_available(
-            weights_filename, weights_zip_url, nn_weights_dir
-        )
+        checkpoint_path = self._ensure_weights_available(weights_filename, weights_zip_url, nn_weights_dir)
 
         # Initialize network
         self.policy_net = PolicyNetwork(
@@ -60,17 +61,11 @@ class PolicyInference:
         self.policy_net.to(self.device)
         self.policy_net.eval()
 
-        self.logger.info(
-            f"Policy inference node initialized with checkpoint: {checkpoint_path}"
-        )
+        self.logger.info(f"Policy inference node initialized with checkpoint: {checkpoint_path}")
         self.logger.info(f"Using device: {self.device}")
-        self.logger.info(
-            f"Board dimensions: {self.board_dim_width}m x {self.board_dim_height}m"
-        )
+        self.logger.info(f"Board dimensions: {self.board_dim_width}m x {self.board_dim_height}m")
         self.logger.info(f"Player side: {self.player_side}")
-        self.logger.info(
-            f"Action rescaling: {enable_action_rescaling} (clip_actions: {clip_actions})"
-        )
+        self.logger.info(f"Action rescaling: {enable_action_rescaling} (clip_actions: {clip_actions})")
 
     def _ensure_weights_available(self, weights_filename, zip_url, nn_weights_dir):
         """Ensure weights file exists, download and extract zip if necessary."""
@@ -84,17 +79,13 @@ class PolicyInference:
             return str(weights_path)
 
         # Download and extract the zip file
-        self.logger.info(
-            f"Weights file not found. Downloading weights zip from: {zip_url}"
-        )
+        self.logger.info(f"Weights file not found. Downloading weights zip from: {zip_url}")
 
         # Clean existing contents if directory exists
         if weights_dir.exists():
             import shutil
 
-            self.logger.info(
-                f"Cleaning existing weights directory contents: {weights_dir}"
-            )
+            self.logger.info(f"Cleaning existing weights directory contents: {weights_dir}")
             for item in weights_dir.iterdir():
                 try:
                     if item.is_file():
@@ -115,7 +106,9 @@ class PolicyInference:
         else:
             # List available files
             available_files = [f.name for f in weights_dir.glob("*.pth")]
-            error_msg = f"Weights file '{weights_filename}' not found after extraction. Available files: {available_files}"
+            error_msg = (
+                f"Weights file '{weights_filename}' not found after extraction. Available files: {available_files}"
+            )
             self.logger.error(error_msg)
             raise FileNotFoundError(error_msg)
 
@@ -126,9 +119,7 @@ class PolicyInference:
             with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_file:
                 tmp_path = tmp_file.name
 
-                self.logger.info(
-                    f"Downloading weights zip to temporary file: {tmp_path}"
-                )
+                self.logger.info(f"Downloading weights zip to temporary file: {tmp_path}")
 
                 # Create a request with headers to handle redirects
                 req = urllib.request.Request(url)
@@ -145,13 +136,9 @@ class PolicyInference:
                         tmp_file.write(chunk)
                         total_size += len(chunk)
                         if total_size % (chunk_size * 100) == 0:  # Log every ~800KB
-                            self.logger.info(
-                                f"Downloaded {total_size / 1024 / 1024:.2f} MB..."
-                            )
+                            self.logger.info(f"Downloaded {total_size / 1024 / 1024:.2f} MB...")
 
-                self.logger.info(
-                    f"Download complete: {total_size / 1024 / 1024:.2f} MB"
-                )
+                self.logger.info(f"Download complete: {total_size / 1024 / 1024:.2f} MB")
 
             # Extract the zip file
             self.logger.info(f"Extracting weights to: {destination_dir}")
@@ -184,9 +171,9 @@ class PolicyInference:
         self.logger.info(f"Loading checkpoint from: {checkpoint_path}")
 
         try:
-            checkpoint = torch.load(
-                checkpoint_path, map_location=self.device, weights_only=False
-            )  # TODO: maybe remove weights_only once everything is working and we are able to regenerate the checkpoint from the original training
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            # TODO: maybe remove weights_only once everything is working and we are
+            # able to regenerate the checkpoint from the original training
 
             # RL-Games saves checkpoints with 'model' key
             if "model" in checkpoint:
@@ -207,9 +194,7 @@ class PolicyInference:
                     model_state_dict[new_key] = value
 
             # Load the mapped state dict
-            missing_keys, unexpected_keys = self.policy_net.load_state_dict(
-                model_state_dict, strict=False
-            )
+            missing_keys, unexpected_keys = self.policy_net.load_state_dict(model_state_dict, strict=False)
 
             if missing_keys:
                 self.logger.warn(f"Missing keys: {missing_keys}")
@@ -217,9 +202,7 @@ class PolicyInference:
                 self.logger.warn(f"Unexpected keys: {unexpected_keys}")
 
             # Log normalization statistics
-            if hasattr(self.policy_net, "running_mean") and hasattr(
-                self.policy_net, "running_var"
-            ):
+            if hasattr(self.policy_net, "running_mean") and hasattr(self.policy_net, "running_var"):
                 self.logger.info(
                     f"Loaded observation normalization: mean range [{self.policy_net.running_mean.min():.4f}, "
                     f"{self.policy_net.running_mean.max():.4f}], "
@@ -234,6 +217,7 @@ class PolicyInference:
             raise
 
     def get_action(self, msg: State) -> np.ndarray:
+        """Get action from State message using the policy network."""
         # Extract and transform observations (handles centering and player-side transformation)
         obs_base = self._map_observations(msg)
 
@@ -254,38 +238,21 @@ class PolicyInference:
 
         Returns:
             16-dimensional centered observation array ready for feature computation.
-            Format: [player_pos, player_vel, opponent_pos, opponent_vel, ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
+            Format: [player_pos, player_vel, opponent_pos, opponent_vel,
+                     ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
         """
         # Extract raw observations (engineering units: meters and m/s)
-        right_peg_pos = np.array(
-            [msg.right_peg.position.y, msg.right_peg.position.x], dtype=np.float32
-        )
-        right_peg_vel = np.array(
-            [msg.right_peg.velocity.y, msg.right_peg.velocity.x], dtype=np.float32
-        )
-        left_peg_pos = np.array(
-            [msg.left_peg.position.y, msg.left_peg.position.x], dtype=np.float32
-        )
-        left_peg_vel = np.array(
-            [msg.left_peg.velocity.y, msg.left_peg.velocity.x], dtype=np.float32
-        )
-        ball_pos = np.array(
-            [msg.ball.position.y, msg.ball.position.x], dtype=np.float32
-        )
-        ball_vel = np.array(
-            [msg.ball.velocity.y, msg.ball.velocity.x], dtype=np.float32
-        )
-        right_goal_pos = np.array(
-            [msg.right_goal_pos.y, msg.right_goal_pos.x], dtype=np.float32
-        )
-        left_goal_pos = np.array(
-            [msg.left_goal_pos.y, msg.left_goal_pos.x], dtype=np.float32
-        )
+        right_peg_pos = np.array([msg.right_peg.position.y, msg.right_peg.position.x], dtype=np.float32)
+        right_peg_vel = np.array([msg.right_peg.velocity.y, msg.right_peg.velocity.x], dtype=np.float32)
+        left_peg_pos = np.array([msg.left_peg.position.y, msg.left_peg.position.x], dtype=np.float32)
+        left_peg_vel = np.array([msg.left_peg.velocity.y, msg.left_peg.velocity.x], dtype=np.float32)
+        ball_pos = np.array([msg.ball.position.y, msg.ball.position.x], dtype=np.float32)
+        ball_vel = np.array([msg.ball.velocity.y, msg.ball.velocity.x], dtype=np.float32)
+        right_goal_pos = np.array([msg.right_goal_pos.y, msg.right_goal_pos.x], dtype=np.float32)
+        left_goal_pos = np.array([msg.left_goal_pos.y, msg.left_goal_pos.x], dtype=np.float32)
 
         # Center all positions to board origin
-        center_offset = np.array(
-            [self.board_dim_height / 2.0, self.board_dim_width / 2.0], dtype=np.float32
-        )
+        center_offset = np.array([self.board_dim_height / 2.0, self.board_dim_width / 2.0], dtype=np.float32)
         right_peg_pos -= center_offset
         left_peg_pos -= center_offset
         ball_pos -= center_offset
@@ -324,11 +291,12 @@ class PolicyInference:
             )
 
         return obs
-    
+
     def _add_additional_features(self, obs):
         """Add geometric features (angles and distances) to observations.
 
-        Input: 16 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
+        Input: 16 values [player_pos, player_vel, opp_pos, opp_vel,
+                          ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
         Output: 20 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, 8 features]
 
         Note: All coordinates are already centered and in engineering units (meters and m/s).
@@ -351,18 +319,10 @@ class PolicyInference:
         vec_ball_to_opp_goal = goal_opponent_pos - ball_pos
 
         # Compute angles
-        angle_pegball_pegoppgoal = self._angle_between_vectors(
-            vec_to_ball, vec_to_opp_goal
-        )
-        angle_oppball_oppgoal = self._angle_between_vectors(
-            vec_opp_to_goal, vec_ball_to_opp
-        )
-        angle_pegball_pegopp = self._angle_between_vectors(
-            vec_to_ball, vec_opp_to_player
-        )
-        angle_oppball_pegopp = self._angle_between_vectors(
-            vec_ball_to_opp, -vec_opp_to_player
-        )
+        angle_pegball_pegoppgoal = self._angle_between_vectors(vec_to_ball, vec_to_opp_goal)
+        angle_oppball_oppgoal = self._angle_between_vectors(vec_opp_to_goal, vec_ball_to_opp)
+        angle_pegball_pegopp = self._angle_between_vectors(vec_to_ball, vec_opp_to_player)
+        angle_oppball_pegopp = self._angle_between_vectors(vec_ball_to_opp, -vec_opp_to_player)
 
         # Compute distances
         distance_ball_goal = np.linalg.norm(vec_ball_to_goal)

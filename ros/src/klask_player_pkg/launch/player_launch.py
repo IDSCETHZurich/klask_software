@@ -1,3 +1,5 @@
+"""Launch file to start Klask player nodes based on specified arguments."""
+
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -8,7 +10,6 @@ from ament_index_python.packages import get_package_share_directory
 
 def launch_setup(context, *args, **kwargs):
     """Setup function to conditionally launch nodes based on player argument."""
-
     # Get the package directory
     pkg_dir = get_package_share_directory("klask_player_pkg")
 
@@ -64,7 +65,6 @@ def generate_launch_description():
         ros2 launch klask_player_pkg player_launch.py player:=right
         ros2 launch klask_player_pkg player_launch.py player:=both
     """
-
     # Declare launch arguments
     player_arg = DeclareLaunchArgument(
         "player",

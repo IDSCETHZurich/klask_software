@@ -5,26 +5,21 @@ Launches state estimator and player node(s) with configurable player selection.
 
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
 
 
 def launch_setup(context, *args, **kwargs):
     """Setup function to conditionally launch nodes based on player argument."""
-
     # Get package directories
     player_pkg_dir = get_package_share_directory("klask_player_pkg")
     state_estimator_pkg_dir = get_package_share_directory("klask_state_estimator_pkg")
 
     # Paths to parameter files
     player_params_file = os.path.join(player_pkg_dir, "config", "player_params.yaml")
-    state_estimator_params_file = os.path.join(
-        state_estimator_pkg_dir, "config", "state_estimator_params.yaml"
-    )
+    state_estimator_params_file = os.path.join(state_estimator_pkg_dir, "config", "state_estimator_params.yaml")
 
     # Get the player argument value
     player = LaunchConfiguration("player").perform(context)
@@ -86,7 +81,6 @@ def generate_launch_description():
         ros2 launch klask_player_pkg game_launch.py player:=right
         ros2 launch klask_player_pkg game_launch.py player:=both
     """
-
     # Declare launch arguments
     player_arg = DeclareLaunchArgument(
         "player",
