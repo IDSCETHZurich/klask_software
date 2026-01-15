@@ -1,3 +1,5 @@
+"""Test script for verifying flake8 style guidelines."""
+
 # Copyright 2017 Open Source Robotics Foundation, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,12 +16,14 @@
 
 from ament_flake8.main import main_with_errors
 import pytest
+from pathlib import Path
 
 
 @pytest.mark.flake8
 @pytest.mark.linter
 def test_flake8():
-    rc, errors = main_with_errors(argv=[])
-    assert rc == 0, \
-        'Found %d code style errors / warnings:\n' % len(errors) + \
-        '\n'.join(errors)
+    """Test that the code conforms to flake8 style guidelines."""
+    # Use the workspace .flake8 configuration
+    config_path = Path(__file__).parent.parent.parent.parent / ".flake8"
+    rc, errors = main_with_errors(argv=["--config", str(config_path)])
+    assert rc == 0, "Found %d code style errors / warnings:\n" % len(errors) + "\n".join(errors)
