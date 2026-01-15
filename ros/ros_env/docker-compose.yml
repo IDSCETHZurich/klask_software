@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  hardware_runtime:
+    image: ghcr.io/idscethzurich/klask_hardware/runtime:latest
+    container_name: klask_hardware_runtime_container
+    stdin_open: true
+    tty: true
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:
+      - /dev/video0:/dev/video0
+    # To pass launch arguments like --player left|right|both, --viewer, --no-viewer:
+    # command: ["--player", "both", "--viewer"]
+    # Or override via: docker compose run hardware --player left --no-viewer
+
+  software_runtime:
+    image: ghcr.io/idscethzurich/klask_software/runtime:latest
+    container_name: klask_software_runtime_container
+    stdin_open: true
+    tty: true
+    depends_on:
+      - hardware_runtime
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - klask_software_runtime_container_nn_weights:/opt/ros/klask_ws/nn_weights:rw
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # To pass launch arguments like --player left|right|both, use:
+    # command: ["--player", "left"]
+    # Or override via: docker compose run runtime --player left
+
+volumes:
+  klask_software_runtime_container_nn_weights:
+
+# IMPORTANT: Before running, execute: xhost +local:root
+# 
+# Usage:
+#   docker compose up -d                    # Start both containers in detached mode
+#   docker compose exec hardware bash       # Connect to hardware container
+#   docker compose exec runtime bash        # Connect to runtime container
+#   docker compose down                     # Stop and remove containers
+#   docker compose logs -f                  # View all logs
+#   docker compose logs -f hardware         # View hardware logs only
+#   docker compose pull                     # Pull latest images
