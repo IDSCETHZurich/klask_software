@@ -24,7 +24,7 @@ RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
 # Install PyTorch with CUDA support
 RUN pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 # Install other requirements
-COPY ros_env/requirements.txt /tmp/requirements.txt
+COPY ros_env/res/requirements.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
 # setup colcon extensions
@@ -38,7 +38,7 @@ RUN mkdir -p $OVERLAY_WS/.vscode
 RUN mkdir -p $OVERLAY_WS/third_party
 
 # import third party repos into workspace
-COPY ros_env/third_party.repos /tmp/third_party.repos
+COPY ros_env/res/third_party.repos /tmp/third_party.repos
 # TODO: Remove this entire RUN block once klask_hardware repo is public
 RUN --mount=type=ssh \
     mkdir -p ~/.ssh && \
