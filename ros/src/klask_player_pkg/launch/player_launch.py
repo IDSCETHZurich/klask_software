@@ -19,7 +19,15 @@ def launch_setup(context, *args, **kwargs):
     # Get the player argument value
     player = LaunchConfiguration("player").perform(context)
 
+    # Get the weights_filename argument value (if provided)
+    weights_filename = LaunchConfiguration("weights_filename").perform(context)
+
     nodes = []
+
+    # Prepare additional parameters (only include weights_filename if provided)
+    additional_params = {}
+    if weights_filename:
+        additional_params["weights_filename"] = weights_filename
 
     # Launch left player
     if player in ["left", "both"]:
@@ -30,6 +38,7 @@ def launch_setup(context, *args, **kwargs):
             parameters=[
                 params_file,
                 {"player_side": "left", "cmd_vel_topic": "cmd_vel/left_player"},
+                additional_params,
             ],
             output="screen",
             emulate_tty=True,
@@ -45,6 +54,7 @@ def launch_setup(context, *args, **kwargs):
             parameters=[
                 params_file,
                 {"player_side": "right", "cmd_vel_topic": "cmd_vel/right_player"},
+                additional_params,
             ],
             output="screen",
             emulate_tty=True,
@@ -59,11 +69,13 @@ def generate_launch_description():
 
     Launch arguments:
         player: Which player to launch ('left', 'right', or 'both'). Default: 'left'
+        weights_filename: Optional weights filename to override config file value
 
     Examples:
         ros2 launch klask_player_pkg player_launch.py player:=left
         ros2 launch klask_player_pkg player_launch.py player:=right
         ros2 launch klask_player_pkg player_launch.py player:=both
+        ros2 launch klask_player_pkg player_launch.py player:=left weights_filename:=klask_ac_nn_v0.0.pth
     """
     # Declare launch arguments
     player_arg = DeclareLaunchArgument(
@@ -72,4 +84,10 @@ def generate_launch_description():
         description="Which player to launch: left, right, or both",
     )
 
-    return LaunchDescription([player_arg, OpaqueFunction(function=launch_setup)])
+    weights_filename_arg = DeclareLaunchArgument(
+        "weights_filename",
+        default_value="",
+        description="Optional: Override weights filename from config file",
+    )
+
+    return LaunchDescription([player_arg, weights_filename_arg, OpaqueFunction(function=launch_setup)])
