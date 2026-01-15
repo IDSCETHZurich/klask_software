@@ -1,4 +1,4 @@
-"""Utility functions"""
+"""Utility functions."""
 
 from geometry_msgs.msg import Point
 
@@ -8,7 +8,7 @@ def create_point(x: float, y: float, z: float = 0.0) -> Point:
     point = Point()
     point.x = float(x)
     point.y = float(y)
-    point.z = z
+    point.z = float(z)
     return point
 
 

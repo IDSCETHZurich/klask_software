@@ -6,20 +6,21 @@ import rclpy
 import numpy as np
 from rclpy.node import Node
 from std_msgs.msg import UInt64
-from klask_interfaces.msg import StampedPolygon, StampedInt32, State
+from klask_interfaces.msg import StampedPolygon, State
+from klask_interfaces_py import BoardState
 from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridge
 
 from .kalman_filter import KalmanFilter
 from .utils import create_point_from_list
 from .debug import draw_object_with_velocity, plot_image
-from .board_state import BoardState
 
 
 class StateEstimatorNode(Node):
     """ROS2 node for estimating ball and peg positions from camera images."""
 
     def __init__(self):
+        """Initialize the state estimator node and its parameters."""
         super().__init__("state_estimator")
 
         # =============================
@@ -38,9 +39,7 @@ class StateEstimatorNode(Node):
         self.board_width_meters = float(self.get_parameter("board_width_meters").value)
 
         self.declare_parameter("board_height_meters", 0.32)
-        self.board_height_meters = float(
-            self.get_parameter("board_height_meters").value
-        )
+        self.board_height_meters = float(self.get_parameter("board_height_meters").value)
 
         # Current image dimensions (updated each frame)
         self.current_image_width: float = 0.0
@@ -88,9 +87,7 @@ class StateEstimatorNode(Node):
 
         # Seconds between display updates (default: 0.1)
         self.declare_parameter("display_update_interval", 0.1)
-        self.display_update_interval = float(
-            self.get_parameter("display_update_interval").value
-        )
+        self.display_update_interval = float(self.get_parameter("display_update_interval").value)
 
         # Topic names
         self.declare_parameter("board_state_topic", "board_state")
@@ -100,24 +97,16 @@ class StateEstimatorNode(Node):
         self.board_image_topic = str(self.get_parameter("board_image_topic").value)
 
         self.declare_parameter("goal_positions_topic", "goal_positions")
-        self.goal_positions_topic = str(
-            self.get_parameter("goal_positions_topic").value
-        )
+        self.goal_positions_topic = str(self.get_parameter("goal_positions_topic").value)
 
         # Ball KF
         self.declare_parameter("ball_kf_process_noise_position", 2.0)
         self.declare_parameter("ball_kf_process_noise_velocity", 30.0)
         self.declare_parameter("ball_kf_measurement_noise_position", 1.0)
 
-        self.ball_kf_process_noise_position = float(
-            self.get_parameter("ball_kf_process_noise_position").value
-        )
-        self.ball_kf_process_noise_velocity = float(
-            self.get_parameter("ball_kf_process_noise_velocity").value
-        )
-        self.ball_kf_measurement_noise_position = float(
-            self.get_parameter("ball_kf_measurement_noise_position").value
-        )
+        self.ball_kf_process_noise_position = float(self.get_parameter("ball_kf_process_noise_position").value)
+        self.ball_kf_process_noise_velocity = float(self.get_parameter("ball_kf_process_noise_velocity").value)
+        self.ball_kf_measurement_noise_position = float(self.get_parameter("ball_kf_measurement_noise_position").value)
 
         # Left peg KF
         self.declare_parameter("left_peg_kf_process_noise_position", 2.0)
@@ -125,18 +114,12 @@ class StateEstimatorNode(Node):
         self.declare_parameter("left_peg_kf_measurement_noise_position", 12.0)
         self.declare_parameter("left_peg_kf_stop_threshold", 0.3)
 
-        self.left_peg_kf_process_noise_position = float(
-            self.get_parameter("left_peg_kf_process_noise_position").value
-        )
-        self.left_peg_kf_process_noise_velocity = float(
-            self.get_parameter("left_peg_kf_process_noise_velocity").value
-        )
+        self.left_peg_kf_process_noise_position = float(self.get_parameter("left_peg_kf_process_noise_position").value)
+        self.left_peg_kf_process_noise_velocity = float(self.get_parameter("left_peg_kf_process_noise_velocity").value)
         self.left_peg_kf_measurement_noise_position = float(
             self.get_parameter("left_peg_kf_measurement_noise_position").value
         )
-        self.left_peg_kf_stop_threshold = float(
-            self.get_parameter("left_peg_kf_stop_threshold").value
-        )
+        self.left_peg_kf_stop_threshold = float(self.get_parameter("left_peg_kf_stop_threshold").value)
 
         # Right peg KF
         self.declare_parameter("right_peg_kf_process_noise_position", 2.0)
@@ -153,9 +136,7 @@ class StateEstimatorNode(Node):
         self.right_peg_kf_measurement_noise_position = float(
             self.get_parameter("right_peg_kf_measurement_noise_position").value
         )
-        self.right_peg_kf_stop_threshold = float(
-            self.get_parameter("right_peg_kf_stop_threshold").value
-        )
+        self.right_peg_kf_stop_threshold = float(self.get_parameter("right_peg_kf_stop_threshold").value)
 
         # ============================================
         # Playing Field Boundaries
@@ -183,9 +164,7 @@ class StateEstimatorNode(Node):
         )
 
         # Timer for state publishing
-        self.state_timer = self.create_timer(
-            1.0 / self.publish_frequency, self._publish_timer_callback
-        )
+        self.state_timer = self.create_timer(1.0 / self.publish_frequency, self._publish_timer_callback)
 
         # CV Bridge for image conversion
         self.bridge = CvBridge()
@@ -231,9 +210,7 @@ class StateEstimatorNode(Node):
         self.right_goal: list[float] | None = None
 
         # Playing field boundaries [x_min, x_max, y_min, y_max]
-        self.edge = np.array(
-            [self.edge_x_min, self.edge_x_max, self.edge_y_min, self.edge_y_max]
-        )
+        self.edge = np.array([self.edge_x_min, self.edge_x_max, self.edge_y_min, self.edge_y_max])
 
         # Goal detection counters
         self.ball_in_left_goal_counter = 0
@@ -246,16 +223,12 @@ class StateEstimatorNode(Node):
 
         self.get_logger().info("State estimator node started")
 
-    def _hsv_param(
-        self, name: str, default_value: tuple[int, int, int]
-    ) -> tuple[int, int, int]:
+    def _hsv_param(self, name: str, default_value: tuple[int, int, int]) -> tuple[int, int, int]:
         value = self.get_parameter(name).value
         try:
             values = [int(v) for v in value]
         except Exception:
-            self.get_logger().warn(
-                f"Parameter '{name}' must be a list of 3 ints; using default {list(default_value)}"
-            )
+            self.get_logger().warn(f"Parameter '{name}' must be a list of 3 ints; using default {list(default_value)}")
             return default_value
 
         if len(values) != 3:
@@ -276,9 +249,7 @@ class StateEstimatorNode(Node):
         """Callback for receiving compressed board images."""
         try:
             # Convert ROS CompressedImage message to OpenCV image
-            cv_image = self.bridge.compressed_imgmsg_to_cv2(
-                msg, desired_encoding="bgr8"
-            )
+            cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
 
             # Store current image dimensions for EU conversion
             # (image size can vary each frame due to rotation/cropping)
@@ -288,11 +259,7 @@ class StateEstimatorNode(Node):
 
             # Update delta time for Kalman filters
             current_time = time.time()
-            self.dt = (
-                current_time - self.previous_time
-                if self.previous_time is not None
-                else 0.01
-            )
+            self.dt = current_time - self.previous_time if self.previous_time is not None else 0.01
             self.previous_time = current_time
 
             # Detect ball and pegs
@@ -336,8 +303,7 @@ class StateEstimatorNode(Node):
         tuple[float, float] | None,
         tuple[float, float] | None,
     ]:
-        """
-        Detect ball and pegs using HSV color filtering and Kalman filtering.
+        """Detect ball and pegs using HSV color filtering and Kalman filtering.
 
         Returns:
             Tuple of (canvas, left_peg_position, right_peg_position, ball_position)
@@ -347,9 +313,7 @@ class StateEstimatorNode(Node):
         frame_hsv_blur = cv2.GaussianBlur(frame_hsv, (7, 7), 0)
 
         # Create masks for ball (orange) and pegs (black)
-        masked_ball = cv2.inRange(
-            frame_hsv_blur, self.ball_hsv_lower, self.ball_hsv_upper
-        )
+        masked_ball = cv2.inRange(frame_hsv_blur, self.ball_hsv_lower, self.ball_hsv_upper)
         masked_peg = cv2.inRange(frame_hsv_blur, self.peg_hsv_lower, self.peg_hsv_upper)
 
         # Create visualization overlay
@@ -373,9 +337,7 @@ class StateEstimatorNode(Node):
         )
 
         # Detect ball with collision detection
-        ball_position = self._detect_ball(
-            masked_ball, left_peg_position, right_peg_position, overlaid_frame
-        )
+        ball_position = self._detect_ball(masked_ball, left_peg_position, right_peg_position, overlaid_frame)
 
         # Display image at set rate
         if self.show_image:
@@ -394,9 +356,7 @@ class StateEstimatorNode(Node):
 
         return left_peg_position, right_peg_position, ball_position
 
-    def _create_overlay(
-        self, frame: np.ndarray, masked_peg: np.ndarray, masked_ball: np.ndarray
-    ) -> np.ndarray:
+    def _create_overlay(self, frame: np.ndarray, masked_peg: np.ndarray, masked_ball: np.ndarray) -> np.ndarray:
         """Create visualization overlay with masks."""
         mask_3_channel_peg = cv2.cvtColor(masked_peg, cv2.COLOR_GRAY2BGR)
         mask_3_channel_ball = cv2.cvtColor(masked_ball, cv2.COLOR_GRAY2BGR)
@@ -415,9 +375,7 @@ class StateEstimatorNode(Node):
         velocity_color: tuple[int, int, int],
     ) -> tuple[float, float] | None:
         """Detect peg in half of the frame."""
-        contours, _ = cv2.findContours(
-            half_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, _ = cv2.findContours(half_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
 
@@ -438,9 +396,7 @@ class StateEstimatorNode(Node):
 
         if self.show_image:
             velocity = kf.get_velocity()
-            draw_object_with_velocity(
-                overlaid_frame, position, velocity, color, velocity_color, 0.5
-            )
+            draw_object_with_velocity(overlaid_frame, position, velocity, color, velocity_color, 0.5)
 
         return (float(position[0]), float(position[1]))
 
@@ -452,9 +408,7 @@ class StateEstimatorNode(Node):
         overlaid_frame: np.ndarray,
     ) -> tuple[float, float] | None:
         """Detect ball with collision-aware Kalman filtering."""
-        contours, _ = cv2.findContours(
-            masked_ball, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
+        contours, _ = cv2.findContours(masked_ball, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         if not contours:
             return None
@@ -470,9 +424,7 @@ class StateEstimatorNode(Node):
         cY_ball = int(M["m01"] / M["m00"])
 
         # Detect potential collisions
-        x_collision, y_collision = self._detect_collisions(
-            cX_ball, cY_ball, left_peg_position, right_peg_position
-        )
+        x_collision, y_collision = self._detect_collisions(cX_ball, cY_ball, left_peg_position, right_peg_position)
 
         # Apply Kalman filter with collision awareness
         self.ball_kf.predict(self.dt, x_collision=x_collision, y_collision=y_collision)
@@ -482,9 +434,7 @@ class StateEstimatorNode(Node):
 
         if self.show_image:
             velocity = self.ball_kf.get_velocity()
-            draw_object_with_velocity(
-                overlaid_frame, position, velocity, (0, 0, 255), (0, 165, 255), 0.2
-            )
+            draw_object_with_velocity(overlaid_frame, position, velocity, (0, 0, 255), (0, 165, 255), 0.2)
 
         return (float(position[0]), float(position[1]))
 
@@ -496,27 +446,14 @@ class StateEstimatorNode(Node):
         right_peg_position: tuple[float, float] | None,
     ) -> tuple[bool, bool]:
         """Detect if ball is near edges or pegs (potential collision)."""
-        at_x_edge = (
-            ball_x < self.edge[0] + self.collision_distance
-            or ball_x + self.collision_distance > self.edge[1]
-        )
-        at_y_edge = (
-            ball_y < self.edge[2] + self.collision_distance
-            or ball_y + self.collision_distance > self.edge[3]
-        )
+        at_x_edge = ball_x < self.edge[0] + self.collision_distance or ball_x + self.collision_distance > self.edge[1]
+        at_y_edge = ball_y < self.edge[2] + self.collision_distance or ball_y + self.collision_distance > self.edge[3]
 
         close_to_peg = False
         if left_peg_position and right_peg_position:
-            dist_left = np.linalg.norm(
-                np.array([ball_x, ball_y]) - np.array(left_peg_position)
-            )
-            dist_right = np.linalg.norm(
-                np.array([ball_x, ball_y]) - np.array(right_peg_position)
-            )
-            close_to_peg = (
-                dist_left < self.collision_distance
-                or dist_right < self.collision_distance
-            )
+            dist_left = np.linalg.norm(np.array([ball_x, ball_y]) - np.array(left_peg_position))
+            dist_right = np.linalg.norm(np.array([ball_x, ball_y]) - np.array(right_peg_position))
+            close_to_peg = dist_left < self.collision_distance or dist_right < self.collision_distance
 
         # Determine collision type
         if close_to_peg or (at_x_edge and at_y_edge):
@@ -530,7 +467,6 @@ class StateEstimatorNode(Node):
 
     def _check_goal(self) -> None:
         """Check if ball or peg has scored and publish outcome."""
-
         data = [
             (self.ball_position, self.left_goal, self.ball_in_left_goal_counter),
             (self.ball_position, self.right_goal, self.ball_in_right_goal_counter),
@@ -562,11 +498,8 @@ class StateEstimatorNode(Node):
             elif counter == 0:
                 self.board_state &= ~flag
 
-    def _update_goal_counter(
-        self, object_pos: np.ndarray, goal_pos: np.ndarray, counter: int
-    ) -> int:
+    def _update_goal_counter(self, object_pos: np.ndarray, goal_pos: np.ndarray, counter: int) -> int:
         """Update goal counter based on distance."""
-
         distance = np.linalg.norm(object_pos - goal_pos)
         if distance < self.goal_radius:
             return min(counter + 1, self.goal_hyst_counter)
@@ -591,18 +524,14 @@ class StateEstimatorNode(Node):
             return self.board_height_meters / self.current_image_height
         return 0.0
 
-    def _convert_position_to_eu(
-        self, position: list[float] | np.ndarray
-    ) -> list[float]:
+    def _convert_position_to_eu(self, position: list[float] | np.ndarray) -> list[float]:
         """Convert position from pixels to engineering units (meters)."""
         return [
             position[0] * self._get_pixel_to_meter_x(),
             position[1] * self._get_pixel_to_meter_y(),
         ]
 
-    def _convert_velocity_to_eu(
-        self, velocity: list[float] | np.ndarray
-    ) -> list[float]:
+    def _convert_velocity_to_eu(self, velocity: list[float] | np.ndarray) -> list[float]:
         """Convert velocity from pixels/s to engineering units (m/s)."""
         return [
             velocity[0] * self._get_pixel_to_meter_x(),
@@ -611,7 +540,6 @@ class StateEstimatorNode(Node):
 
     def _publish_timer_callback(self) -> None:
         """Publish estimated positions/velocities in EU (meters, m/s)."""
-
         if not (self.board_state & BoardState.READY):
             return
 
@@ -657,6 +585,7 @@ class StateEstimatorNode(Node):
 
 
 def main(args=None):
+    """Main entry point for the state estimator node."""
     rclpy.init(args=args)
 
     state_estimator = StateEstimatorNode()

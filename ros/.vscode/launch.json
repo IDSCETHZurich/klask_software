@@ -8,10 +8,10 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Debug policy_inference_node (ROS2)",
+            "name": "Debug player_node (ROS2)",
             "type": "debugpy",
             "request": "launch",
-            "module": "klask_player_pkg.policy_inference_node",
+            "module": "klask_player_pkg.player_node",
             "console": "integratedTerminal"
         },
     ]

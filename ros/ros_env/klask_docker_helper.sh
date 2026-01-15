@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Klask Docker management script for SDK and Runtime containers
-# Usage: ./klask_docker.sh [--runtime|-r] <command>
+# Usage: ./klask_docker_helper.sh [--runtime|-r] <command>
 
 # To enable tab completion, add this to your ~/.bashrc 
 # or execute it in your shell for to have it for the current session:
-#     source /path/to/klask_docker.sh --completion
+#     source /path/to/klask_docker_helper.sh --completion
 
 NS="software"
 
@@ -16,10 +16,10 @@ if [[ "$1" == "--completion" ]]; then
         COMPREPLY=($(compgen -W "$commands" -- "${COMP_WORDS[1]}"))
     }
     # Register for various ways the script might be called
-    complete -F _klask_docker_completions klask_docker.sh
-    complete -F _klask_docker_completions ./klask_docker.sh
-    complete -F _klask_docker_completions ./ros/env/klask_docker.sh
-    complete -F _klask_docker_completions ros/env/klask_docker.sh
+    complete -F _klask_docker_completions klask_docker_helper.sh
+    complete -F _klask_docker_completions ./klask_docker_helper.sh
+    complete -F _klask_docker_completions ./ros/ros_env/klask_docker_helper.sh
+    complete -F _klask_docker_completions ros/ros_env/klask_docker_helper.sh
     return 0 2>/dev/null || exit 0
 fi
 
@@ -59,7 +59,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 print_usage() {
-    echo "Usage: $0 [--runtime|-r] <command>"
+    echo "Usage: $0 [--runtime|-r] <command> [args...]"
     echo ""
     echo "Flags:"
     echo "  --runtime, -r  Use Runtime container instead of SDK (default: SDK)"
@@ -67,14 +67,18 @@ print_usage() {
     echo "Commands:"
     echo "  build    Build the Docker image"
     echo "  run      Run the container (detached)"
+    echo "           For Runtime mode, additional args are passed to the launch file"
     echo "  connect  Connect to the running container"
     echo "  stop     Stop the container"
     echo "  status   Show container status"
     echo ""
     echo "Examples:"
-    echo "  $0 build              # Build SDK image"
-    echo "  $0 --runtime build    # Build Runtime image"
-    echo "  $0 -r run             # Run Runtime container"
+    echo "  $0 build                              # Build SDK image"
+    echo "  $0 --runtime build                    # Build Runtime image"
+    echo "  $0 -r run                             # Run Runtime container with defaults"
+    echo "  $0 -r run --player left               # Run with left player only"
+    echo "  $0 -r run --player right --no-viewer  # Run right player without viewer"
+    echo "  $0 -r run --no-viewer                 # Run both players without viewer"
     echo ""
 }
 
@@ -100,6 +104,10 @@ cmd_run() {
 
     if [[ "$MODE" == "runtime" ]]; then
         # Runtime container: pre-built workspace, minimal volumes
+        # Additional arguments are passed to the container entrypoint
+        if [ $# -gt 0 ]; then
+            echo -e "${GREEN}Passing arguments to container: $@${NC}"
+        fi
         xhost +local:root
         docker run -it -d --rm \
             --env="DISPLAY" \
@@ -109,7 +117,7 @@ cmd_run() {
             --volume="${CONTAINER_NAME}_nn_weights:/opt/ros/klask_ws/nn_weights:rw" \
             --gpus=all \
             --name="${CONTAINER_NAME}" \
-            "${IMAGE_NAME}:${TAG}"
+            "${IMAGE_NAME}:${TAG}" "$@"
     else
         # SDK container: development mode with source mounts
         xhost +local:root
@@ -120,6 +128,9 @@ cmd_run() {
             --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
             --volume="$SCRIPT_DIR/../src:/opt/ros/klask_ws/src:rw" \
             --volume="$SCRIPT_DIR/../.vscode:/opt/ros/klask_ws/.vscode:rw" \
+            --volume="$SCRIPT_DIR/../.clang-format:/opt/ros/klask_ws/.clang-format:rw" \
+            --volume="$SCRIPT_DIR/../.flake8:/opt/ros/klask_ws/.flake8:rw" \
+            --volume="$SCRIPT_DIR/../pyproject.toml:/opt/ros/klask_ws/pyproject.toml:rw" \
             --volume="${CONTAINER_NAME}_build:/opt/ros/klask_ws/build:rw" \
             --volume="${CONTAINER_NAME}_install:/opt/ros/klask_ws/install:rw" \
             --volume="${CONTAINER_NAME}_log:/opt/ros/klask_ws/log:rw" \
@@ -185,12 +196,15 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-case "$1" in
+COMMAND="$1"
+shift  # Remove command from arguments
+
+case "$COMMAND" in
     build)
         cmd_build
         ;;
     run)
-        cmd_run
+        cmd_run "$@"
         ;;
     connect)
         cmd_connect
@@ -205,7 +219,7 @@ case "$1" in
         print_usage
         ;;
     *)
-        echo -e "${RED}Unknown command: $1${NC}"
+        echo -e "${RED}Unknown command: $COMMAND${NC}"
         echo ""
         print_usage
         exit 1

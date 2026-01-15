@@ -1,4 +1,7 @@
-"""Launch file to start Klask player nodes based on specified arguments."""
+"""Unified launch file for complete Klask game system.
+
+Launches state estimator and player node(s) with configurable player selection.
+"""
 
 import os
 from launch import LaunchDescription
@@ -10,11 +13,13 @@ from ament_index_python.packages import get_package_share_directory
 
 def launch_setup(context, *args, **kwargs):
     """Setup function to conditionally launch nodes based on player argument."""
-    # Get the package directory
-    pkg_dir = get_package_share_directory("klask_player_pkg")
+    # Get package directories
+    player_pkg_dir = get_package_share_directory("klask_player_pkg")
+    state_estimator_pkg_dir = get_package_share_directory("klask_state_estimator_pkg")
 
-    # Path to the parameter file
-    params_file = os.path.join(pkg_dir, "config", "player_params.yaml")
+    # Paths to parameter files
+    player_params_file = os.path.join(player_pkg_dir, "config", "player_params.yaml")
+    state_estimator_params_file = os.path.join(state_estimator_pkg_dir, "config", "state_estimator_params.yaml")
 
     # Get the player argument value
     player = LaunchConfiguration("player").perform(context)
@@ -29,6 +34,17 @@ def launch_setup(context, *args, **kwargs):
     if weights_filename:
         additional_params["weights_filename"] = weights_filename
 
+    # Launch state estimator
+    state_estimator_node = Node(
+        package="klask_state_estimator_pkg",
+        executable="state_estimator",
+        name="state_estimator",
+        parameters=[state_estimator_params_file],
+        output="screen",
+        emulate_tty=True,
+    )
+    nodes.append(state_estimator_node)
+
     # Launch left player
     if player in ["left", "both"]:
         left_player_node = Node(
@@ -36,7 +52,7 @@ def launch_setup(context, *args, **kwargs):
             executable="player_node",
             name="klask_player_left",
             parameters=[
-                params_file,
+                player_params_file,
                 {"player_side": "left", "cmd_vel_topic": "cmd_vel/left_player"},
                 additional_params,
             ],
@@ -52,7 +68,7 @@ def launch_setup(context, *args, **kwargs):
             executable="player_node",
             name="klask_player_right",
             parameters=[
-                params_file,
+                player_params_file,
                 {"player_side": "right", "cmd_vel_topic": "cmd_vel/right_player"},
                 additional_params,
             ],
@@ -65,17 +81,17 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    """Launch the Klask policy inference node(s) with parameters.
+    """Launch the complete Klask game system.
 
     Launch arguments:
-        player: Which player to launch ('left', 'right', or 'both'). Default: 'left'
+        player: Which player to launch ('left', 'right', or 'both'). Default: 'both'
         weights_filename: Optional weights filename to override config file value
 
     Examples:
-        ros2 launch klask_player_pkg player_launch.py player:=left
-        ros2 launch klask_player_pkg player_launch.py player:=right
-        ros2 launch klask_player_pkg player_launch.py player:=both
-        ros2 launch klask_player_pkg player_launch.py player:=left weights_filename:=klask_ac_nn_v0.0.pth
+        ros2 launch klask_player_pkg game_launch.py player:=left
+        ros2 launch klask_player_pkg game_launch.py player:=right
+        ros2 launch klask_player_pkg game_launch.py player:=both
+        ros2 launch klask_player_pkg game_launch.py player:=both weights_filename:=klask_ac_nn_v0.0.pth
     """
     # Declare launch arguments
     player_arg = DeclareLaunchArgument(

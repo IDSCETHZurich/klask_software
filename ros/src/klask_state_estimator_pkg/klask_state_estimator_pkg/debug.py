@@ -1,3 +1,5 @@
+"""Debugging utilities for Klask state estimator visualization."""
+
 import cv2
 import numpy as np
 
@@ -54,7 +56,6 @@ def plot_image(
     current_fps: float,
 ) -> None:
     """Plot the overlaid frame with goals on a canvas and display it."""
-
     # Draw goals
     draw_goals(overlaid_frame, left_goal, right_goal, goal_radius)
 
@@ -72,17 +73,13 @@ def create_canvas(
     current_fps: float,
 ) -> np.ndarray:
     """Resize frame and center it on a canvas."""
-    resized_image, new_w, new_h = resize_with_aspect_ratio(
-        overlaid_frame, canvas_width, canvas_height
-    )
+    resized_image, new_w, new_h = resize_with_aspect_ratio(overlaid_frame, canvas_width, canvas_height)
 
     # Ensure dimensions are within bounds
     if new_w > canvas_width or new_h > canvas_height:
         new_w = min(new_w, canvas_width)
         new_h = min(new_h, canvas_height)
-        resized_image = cv2.resize(
-            resized_image, (new_w, new_h), interpolation=cv2.INTER_AREA
-        )
+        resized_image = cv2.resize(resized_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
     # Center on black canvas
     canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
@@ -107,11 +104,8 @@ def create_canvas(
     return canvas
 
 
-def resize_with_aspect_ratio(
-    image: np.ndarray, target_width: int, target_height: int
-) -> tuple[np.ndarray, int, int]:
-    """
-    Resize image while maintaining aspect ratio to fit within target dimensions.
+def resize_with_aspect_ratio(image: np.ndarray, target_width: int, target_height: int) -> tuple[np.ndarray, int, int]:
+    """Resize image while maintaining aspect ratio to fit within target dimensions.
 
     Args:
         image: Input image

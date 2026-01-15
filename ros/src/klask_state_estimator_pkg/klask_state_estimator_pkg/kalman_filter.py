@@ -19,8 +19,7 @@ class KalmanFilter:
         stop_threshold: float = -1.0,
         velocity_threshold: float = DEFAULT_VELOCITY_THRESHOLD,
     ):
-        """
-        Initialize Kalman Filter.
+        """Initialize Kalman Filter.
 
         Args:
             process_noise_position: Process noise for position
@@ -57,11 +56,8 @@ class KalmanFilter:
         # State transition matrix (will be updated with dt)
         self.F = np.eye(4)
 
-    def predict(
-        self, dt: float, x_collision: bool = False, y_collision: bool = False
-    ) -> None:
-        """
-        Predict the next state based on the motion model.
+    def predict(self, dt: float, x_collision: bool = False, y_collision: bool = False) -> None:
+        """Predict the next state based on the motion model.
 
         Args:
             dt: Time step since last prediction
@@ -74,21 +70,16 @@ class KalmanFilter:
         # Adjust process noise for collisions
         Q = self.Q.copy()
         if x_collision:
-            Q += np.diag(
-                [self.COLLISION_POSITION_NOISE, 0.0, self.COLLISION_VELOCITY_NOISE, 0.0]
-            )
+            Q += np.diag([self.COLLISION_POSITION_NOISE, 0.0, self.COLLISION_VELOCITY_NOISE, 0.0])
         if y_collision:
-            Q += np.diag(
-                [0.0, self.COLLISION_POSITION_NOISE, 0.0, self.COLLISION_VELOCITY_NOISE]
-            )
+            Q += np.diag([0.0, self.COLLISION_POSITION_NOISE, 0.0, self.COLLISION_VELOCITY_NOISE])
 
         # Prediction step
         self.state = self.F @ self.state
         self.P = self.F @ self.P @ self.F.T + Q
 
     def update(self, measurement: tuple[float, float]) -> None:
-        """
-        Update state with new measurement.
+        """Update state with new measurement.
 
         Args:
             measurement: Measured position (x, y)

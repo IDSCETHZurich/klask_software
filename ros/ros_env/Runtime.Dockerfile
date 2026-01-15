@@ -17,18 +17,28 @@ EOF
 
 # Copy repository configuration files
 WORKDIR $OVERLAY_WS
-COPY ros_env/third_party.repos /tmp/third_party.repos
+COPY ros_env/res/third_party.repos /tmp/third_party.repos
 
 # Import third-party repositories
-RUN mkdir -p $OVERLAY_WS/third_party && \
+RUN mkdir -p $OVERLAY_WS/third_party
+# TODO: Remove this entire RUN block once klask_hardware repo is public
+RUN apt-get update && apt-get install -y openssh-client
+RUN --mount=type=ssh \
+    mkdir -p ~/.ssh && \
+    echo "Host github.com-MeierTobias" > ~/.ssh/config && \
+    echo "  HostName github.com" >> ~/.ssh/config && \
+    echo "  User git" >> ~/.ssh/config && \
+    ssh-keyscan github.com >> ~/.ssh/known_hosts && \
     vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
+# TODO: Once repo is public, replace above RUN block with:
+# RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
 
 # Copy source code
 COPY src $OVERLAY_WS/src
 
 # Ignore packages not needed for runtime
-RUN touch $OVERLAY_WS/third_party/ros_odrive/odrive_ros2_control/COLCON_IGNORE || true && \
-    touch $OVERLAY_WS/third_party/ros_odrive/odrive_botwheel_explorer/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_imaging_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_motor_commander_pkg/COLCON_IGNORE || true
 
 # Derive build and exec dependencies
 RUN bash -e <<'EOF'
@@ -67,6 +77,7 @@ RUN --mount=type=cache,target=/etc/apt/apt.conf.d,from=cacher,source=/etc/apt/ap
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-opencv \
+    libboost-python-dev \
     libqt5gui5 \
     libqt5widgets5 \
     libqt5core5a \
@@ -79,10 +90,17 @@ RUN apt-get update && apt-get install -y \
     libxcb-shape0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY ros_env/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt
+# install python packages
+RUN pip install --no-cache-dir --upgrade pip
+# Remove conflicting distutils-installed package (sympy) to avoid installation issues
+RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
+    /usr/local/lib/python3*/dist-packages/sympy* \
+    /usr/lib/python3.*/dist-packages/sympy* || true
+# Install PyTorch with CUDA support
+RUN pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# Install other requirements
+COPY ros_env/res/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 # Copy workspace source code
 WORKDIR $OVERLAY_WS
@@ -113,6 +131,8 @@ RUN --mount=type=cache,target=/etc/apt/apt.conf.d,from=cacher,source=/etc/apt/ap
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-opencv \
+    libboost-python-dev \
+    xterm \
     libqt5gui5 \
     libqt5widgets5 \
     libqt5core5a \
@@ -125,10 +145,17 @@ RUN apt-get update && apt-get install -y \
     libxcb-shape0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python runtime dependencies
-COPY ros_env/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
+# install python packages
+RUN pip install --no-cache-dir --upgrade pip
+# Remove conflicting distutils-installed package (sympy) to avoid installation issues
+RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
+    /usr/local/lib/python3*/dist-packages/sympy* \
+    /usr/lib/python3.*/dist-packages/sympy* || true
+# Install PyTorch with CUDA support
+RUN pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+# Install other requirements
+COPY ros_env/res/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && \
     rm /tmp/requirements.txt
 
 # Copy built workspace from builder
@@ -144,7 +171,17 @@ RUN sed --in-place --expression \
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
 RUN echo "source $OVERLAY_WS/install/setup.bash\n" >> ~/.bashrc
 
+# Copy and set up runtime entrypoint
+COPY ros_env/res/runtime_entrypoint.sh /runtime_entrypoint.sh
+RUN chmod +x /runtime_entrypoint.sh
+
 WORKDIR $OVERLAY_WS
 
-# Default command: launch state estimator
-CMD ["ros2", "launch", "klask_state_estimation_pkg", "state_estimation_launch.py"]
+# Default command: launch state estimator with two player nodes
+# Usage: docker run <image> [--player left|right|both]
+# Examples:
+#   docker run <image>                          # launches with player:=both(defaults)
+#   docker run <image> --player left            # launches with player:=left 
+#   docker run <image> --player right            # launches with player:=right
+#   docker run <image> --player both             # launches with player:=both
+ENTRYPOINT ["/runtime_entrypoint.sh"]

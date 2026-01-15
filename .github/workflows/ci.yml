@@ -1,0 +1,41 @@
+name: ci
+
+on: # Uncomment as soon as klask_hardware is public
+  # push:
+  #   branches: ["**"] # every commit
+  # pull_request:
+  #   branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/idscethzurich/klask_software/ci:latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ros
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy third-party packages to workspace
+        run: cp -r /opt/ros/klask_ws/third_party .
+
+      - name: Build packages
+        run: |
+          . /opt/ros/${ROS_DISTRO}/setup.sh
+          colcon build
+
+      - name: Run tests
+        run: |
+          . /opt/ros/${ROS_DISTRO}/setup.sh
+          . install/setup.sh
+          colcon test --packages-select klask_player_pkg klask_state_estimator_pkg # only test our packages
+
+      - name: Test results
+        if: always()
+        run: |
+          . /opt/ros/${ROS_DISTRO}/setup.sh
+          . install/setup.sh
+          colcon test-result --verbose
