@@ -1,5 +1,7 @@
 # KLASK Robotic Software Stack
 
+<img src="docs/res//imgs/general/klask_robotic_system.png" alt="KLASK Robotic System" width="500"/>
+
 This repository contains the high-level ROS2 nodes that enable the KLASK robot to play autonomously. It provides a policy inference node and a state estimator node for real-time gameplay.
 
 <!-- CI pipeline (Colcon build and test) -->
@@ -164,6 +166,28 @@ We welcome contributions! Whether you're fixing bugs, adding features, or enhanc
 2. **Develop** following our [contribution guidelines](https://idscethzurich.github.io/klask_hardware/contribution/contributing/)
 3. **Test** your changes thoroughly
 4. **Submit a PR** with a clear description and context
+
+## Maintainers
+
+This project is mostly maintained by:
+
+- [Aswin](https://github.com/akrv) - Lead Researcher
+- [Tobias](https://github.com/MeierTobias) - Student
+
+## Citing
+
+If you use this work in an academic context, please cite the following publication:
+
+- Authors, **"Title"**, 2023. ([PDF](link_to_pdf))
+
+    ```bibtex
+    @article{,
+      title={},
+      author={},
+      journal={},
+      year={2026}
+    }
+    ```
 
 ## License
 
