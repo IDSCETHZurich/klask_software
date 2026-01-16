@@ -44,11 +44,11 @@ class Player(Node):
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
 
-        # Motor commander service parameters
-        self.declare_parameter("motor_commander_namespace", "/motor_commander")
-        self.declare_parameter("get_calibration_status_service_name", "get_calibration_status")
-        self.declare_parameter("home_and_calibrate_action_name", "home_and_calibrate")
-        self.declare_parameter("is_player_homed_service_name", "is_player_homed")
+        # Motor commander service parameters (these are global, not per-player)
+        self.declare_parameter("get_calibration_status_service_name", "/get_calibration_status")
+        self.declare_parameter("is_player_homed_service_name", "/is_player_homed")
+        # Home and calibrate action is per-player: home_and_calibrate_{left,right}_player
+        self.declare_parameter("home_and_calibrate_action_prefix", "/home_and_calibrate")
 
         # Get parameters
         state_topic = self.get_parameter("state_topic").value
@@ -67,15 +67,12 @@ class Player(Node):
             self.PEG_IN_OWN_GOAL_FLAG = BoardState.PEG_IN_RIGHT_GOAL
             self.center_direction = -1
 
-        # Motor commander service names
-        motor_namespace = self.get_parameter("motor_commander_namespace").value
-        calibration_status_service_name = self.get_parameter("get_calibration_status_service_name").value
-        home_calibrate_action = self.get_parameter("home_and_calibrate_action_name").value
+        # Motor commander service names (calibration status and homed are global services)
+        self.calibration_status_service_name = self.get_parameter("get_calibration_status_service_name").value
         self.is_player_homed_service_name = self.get_parameter("is_player_homed_service_name").value
-
-        # Build full service names based on player side
-        self.calibration_status_service_name = f"{motor_namespace}/{self.player_side}/{calibration_status_service_name}"
-        self.home_and_calibrate_action_name = f"{motor_namespace}/{self.player_side}/{home_calibrate_action}"
+        # Home and calibrate action is per-player
+        home_calibrate_action_prefix = self.get_parameter("home_and_calibrate_action_prefix").value
+        self.home_and_calibrate_action_name = f"{home_calibrate_action_prefix}_{self.player_side}_player"
 
         # Action handles
         self.homing_goal_handle = None
@@ -126,7 +123,7 @@ class Player(Node):
 
         # State machine logic
         if self.game_state == GameState.INITIALIZING:
-            if msg.status & BoardState.READY:
+            if msg.status.data & BoardState.READY:
                 self.game_state = GameState.STATE_ESTIMATOR_READY
 
         elif self.game_state == GameState.STATE_ESTIMATOR_READY:
@@ -146,10 +143,10 @@ class Player(Node):
             pass
 
         elif self.game_state == GameState.HW_READY:
-            if not (msg.status & BoardState.READY):
+            if not (msg.status.data & BoardState.READY):
                 self.game_state = GameState.UNKNOWN_BOARD_STATE
 
-            elif msg.status & (
+            elif msg.status.data & (
                 BoardState.BALL_IN_LEFT_GOAL
                 | BoardState.BALL_IN_RIGHT_GOAL
                 | BoardState.PEG_IN_LEFT_GOAL
@@ -171,10 +168,10 @@ class Player(Node):
         elif self.game_state == GameState.PLAYING:
             action = np.array([0.0, 0.0])
 
-            if not (msg.status & BoardState.READY):
+            if not (msg.status.data & BoardState.READY):
                 self.game_state = GameState.UNKNOWN_BOARD_STATE
 
-            elif msg.status & (
+            elif msg.status.data & (
                 BoardState.BALL_IN_LEFT_GOAL
                 | BoardState.BALL_IN_RIGHT_GOAL
                 | BoardState.PEG_IN_LEFT_GOAL
@@ -191,14 +188,14 @@ class Player(Node):
             # stop motors
             self.publish_action(np.array([0.0, 0.0]))
 
-            if msg.status & self.PEG_IN_OWN_GOAL_FLAG:
+            if msg.status.data & self.PEG_IN_OWN_GOAL_FLAG:
                 self.game_state = GameState.MOVE_MAGNET
             else:
                 self.game_state = GameState.REQUESTING_HOME_CAL
 
         elif self.game_state == GameState.UNKNOWN_BOARD_STATE:
             self.publish_action(np.array([0.0, 0.0]))
-            if msg.status & BoardState.READY:
+            if msg.status.data & BoardState.READY:
                 self.game_state = GameState.STATE_ESTIMATOR_READY
 
         elif self.game_state == GameState.MOVE_MAGNET:
@@ -214,7 +211,7 @@ class Player(Node):
         elif self.game_state == GameState.WAIT_FOR_PEG_RESET:
             # Wait for the peg to be removed from goal
             self.publish_action(np.array([0.0, 0.0]))
-            if msg.status & self.PEG_IN_OWN_GOAL_FLAG:
+            if msg.status.data & self.PEG_IN_OWN_GOAL_FLAG:
                 # still in goal, wait
                 pass
             else:
@@ -237,6 +234,7 @@ class Player(Node):
             return
 
         request = GetCalibrationStatus.Request()
+        request.player = f"{self.player_side}_player"
         future = self.calibration_status_client.call_async(request)
         future.add_done_callback(self._calibration_status_callback)
 
@@ -244,7 +242,7 @@ class Player(Node):
         """Handle calibration status response."""
         try:
             response = future.result()
-            if response.calibrated:
+            if response.is_calibrated:
                 self.get_logger().info("Motors are calibrated")
                 self.game_state = GameState.HW_CALIBRATED
             else:
@@ -260,6 +258,7 @@ class Player(Node):
             return
 
         request = IsPlayerHomed.Request()
+        request.player = f"{self.player_side}_player"
         future = self.homed_client.call_async(request)
         future.add_done_callback(self._at_home_status_callback)
 
