@@ -21,7 +21,7 @@
     # Goal Detection Parameters
     # ============================================
 
-    goal_radius: 22 # Radius around goal center to count as "in goal" (pixels) (default: 22)
+    goal_radius: 25 # Radius around goal center to count as "in goal" (pixels) (default: 25)
     goal_hyst_counter: 30 # Frames required before confirming goal (default: 30)
 
     # ============================================
@@ -52,7 +52,7 @@
     # Timing
     # ============================================
 
-    publish_frequency: 80.0 # State publishing frequency in Hz (default: 80.0)
+    publish_frequency: 50.0 # State publishing frequency in Hz (default: 50.0)
     display_update_interval: 0.1 # Seconds between display updates (default: 0.1)
 
     # ============================================
