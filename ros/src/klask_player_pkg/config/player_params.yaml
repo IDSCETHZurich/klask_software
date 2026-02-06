@@ -13,7 +13,7 @@
     player_side: "left" # Options: "left", "right" - will be overridden by launch file
 
     # Action rescaling configuration
-    clip_actions: 0.2 # Action clipping bound
+    clip_actions: 0.4 # Action clipping bound
     enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
 
     # State machine configuration
