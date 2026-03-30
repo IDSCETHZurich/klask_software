@@ -109,7 +109,7 @@ cmd_run() {
             echo -e "${GREEN}Passing arguments to container: $@${NC}"
         fi
         xhost +local:root
-        docker run -it -d --rm \
+        docker run -it --rm \
             --env="DISPLAY" \
             --env="QT_X11_NO_MITSHM=1" \
             --env="ROS_DOMAIN_ID=0" \
