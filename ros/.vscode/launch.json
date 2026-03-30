@@ -5,12 +5,22 @@
             "type": "debugpy",
             "request": "launch",
             "module": "klask_state_estimator_pkg.state_estimator_node",
+            "args": [
+                "--ros-args",
+                "--params-file",
+                "${workspaceFolder}/src/klask_state_estimator_pkg/config/state_estimator_params.yaml"
+            ],
             "console": "integratedTerminal"
         },
         {
             "name": "Debug player_node (ROS2)",
             "type": "debugpy",
             "request": "launch",
+            "args": [
+                "--ros-args",
+                "--params-file",
+                "${workspaceFolder}/src/klask_player_pkg/config/player_params.yaml"
+            ],
             "module": "klask_player_pkg.player_node",
             "console": "integratedTerminal"
         },

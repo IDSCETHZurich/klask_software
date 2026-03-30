@@ -12,6 +12,8 @@ from klask_interfaces.srv import GetCalibrationStatus, IsPlayerHomed
 from klask_interfaces.action import HomeAndCalibrate
 from klask_interfaces_py import BoardState
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Empty
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
 
 class Player(Node):
@@ -43,6 +45,10 @@ class Player(Node):
 
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
+
+        # Heartbeat watchdog parameters
+        self.declare_parameter("heartbeat_topic", "heartbeat")
+        self.declare_parameter("heartbeat_timeout", 1.5)
 
         # Motor commander service parameters (these are global, not per-player)
         self.declare_parameter("get_calibration_status_service_name", "/get_calibration_status")
@@ -80,6 +86,18 @@ class Player(Node):
         # Timers
         self.interaction_delay_timer = None
         self.magnet_recover_timer = None
+
+        # Heartbeat watchdog
+        self.heartbeat_timeout = self.get_parameter("heartbeat_timeout").value
+        heartbeat_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.heartbeat_sub = self.create_subscription(
+            Empty,
+            self.get_parameter("heartbeat_topic").value,
+            self._heartbeat_callback,
+            heartbeat_qos,
+        )
+        self.heartbeat_received = False
+        self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
 
         # Initialize policy inference class
         self.policy = PolicyInference(
@@ -333,6 +351,38 @@ class Player(Node):
 
         self.homing_goal_handle = None
         self.game_state = GameState.STATE_ESTIMATOR_READY
+
+    def _heartbeat_callback(self, msg):
+        """Reset watchdog on heartbeat received."""
+        self.heartbeat_received = True
+        self.heartbeat_watchdog.cancel()
+        self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
+
+    def _heartbeat_lost_callback(self):
+        """Handle motor commander heartbeat loss."""
+        self.heartbeat_watchdog.cancel()
+
+        if not self.heartbeat_received:
+            self.get_logger().warn("No heartbeat received from motor commander yet.")
+            self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
+            return
+
+        self.get_logger().error("Motor commander heartbeat lost! Resetting to INITIALIZING.")
+
+        # Stop motors immediately
+        self.publish_action(np.array([0.0, 0.0]))
+
+        # Clean up any in-progress timers/actions
+        if self.interaction_delay_timer is not None:
+            self.interaction_delay_timer.cancel()
+            self.interaction_delay_timer = None
+        if self.magnet_recover_timer is not None:
+            self.magnet_recover_timer.cancel()
+            self.magnet_recover_timer = None
+        self.homing_goal_handle = None
+
+        # Reset state machine
+        self.game_state = GameState.INITIALIZING
 
     def _magnet_recover_complete(self):
         """Handle magnet recovery completion."""

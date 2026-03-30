@@ -34,3 +34,7 @@
     # QoS settings
     subscription_queue_size: 1
     publisher_queue_size: 1
+
+    # Motor Commander watchdog configuration
+    heartbeat_topic: "/motor_commander/heartbeat" # Topic to monitor for motor commander heartbeat
+    heartbeat_timeout: 1.5 # Timeout in seconds to consider motor commander unresponsive
