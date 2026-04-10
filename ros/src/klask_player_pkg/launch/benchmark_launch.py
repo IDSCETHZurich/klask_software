@@ -16,6 +16,7 @@ def launch_setup(context, *args, **kwargs):
     # Get launch argument values
     weights_filename = LaunchConfiguration("weights_filename").perform(context)
     device = LaunchConfiguration("device").perform(context)
+    agent_type = LaunchConfiguration("agent_type").perform(context)
 
     # Build parameter overrides for non-empty launch arguments
     additional_params = {}
@@ -23,6 +24,8 @@ def launch_setup(context, *args, **kwargs):
         additional_params["weights_filename"] = weights_filename
     if device:
         additional_params["device"] = device
+    if agent_type:
+        additional_params["agent_type"] = agent_type
 
     benchmark_node = Node(
         package="klask_player_pkg",
@@ -42,11 +45,12 @@ def generate_launch_description():
     Launch arguments:
         weights_filename: Override weights filename from config file
         device: Override device (cpu or cuda)
+        agent_type: Override agent type (ppo or dreamer)
 
     Examples:
         ros2 launch klask_player_pkg benchmark_launch.py
         ros2 launch klask_player_pkg benchmark_launch.py weights_filename:=klask_ac_nn_v1.0.pth
-        ros2 launch klask_player_pkg benchmark_launch.py weights_filename:=klask_ac_nn_v1.0.pth device:=cuda
+        ros2 launch klask_player_pkg benchmark_launch.py agent_type:=dreamer weights_filename:=dreamer_inference.pt
     """
     weights_filename_arg = DeclareLaunchArgument(
         "weights_filename",
@@ -60,4 +64,10 @@ def generate_launch_description():
         description="Optional: Override device (cpu or cuda)",
     )
 
-    return LaunchDescription([weights_filename_arg, device_arg, OpaqueFunction(function=launch_setup)])
+    agent_type_arg = DeclareLaunchArgument(
+        "agent_type",
+        default_value="",
+        description="Optional: Override agent type (ppo or dreamer)",
+    )
+
+    return LaunchDescription([weights_filename_arg, device_arg, agent_type_arg, OpaqueFunction(function=launch_setup)])

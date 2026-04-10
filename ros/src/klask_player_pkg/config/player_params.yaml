@@ -12,7 +12,12 @@
     # Player configuration
     player_side: "left" # Options: "left", "right" - will be overridden by launch file
 
-    # Action rescaling configuration
+    # Agent type selection
+    agent_type: "ppo" # Options: "ppo", "dreamer"
+    image_topic: "board_image/compressed" # Camera topic for Dreamer agent
+    dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
+
+    # Action rescaling configuration (PPO only)
     clip_actions: 0.4 # Action clipping bound
     enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
 

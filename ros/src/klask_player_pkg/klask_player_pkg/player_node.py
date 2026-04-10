@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from .policy_inference import PolicyInference
+from .ppo.policy_inference import PolicyInference
 from .game_state import GameState
 from klask_interfaces.msg import State
 from klask_interfaces.srv import GetCalibrationStatus, IsPlayerHomed
@@ -13,6 +13,8 @@ from klask_interfaces.action import HomeAndCalibrate
 from klask_interfaces_py import BoardState
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Empty
+from sensor_msgs.msg import CompressedImage
+from cv_bridge import CvBridge
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
 
@@ -42,6 +44,11 @@ class Player(Node):
         self.declare_parameter("publisher_queue_size", 1)
         self.declare_parameter("clip_actions", 0.2)
         self.declare_parameter("enable_action_rescaling", True)
+
+        # Agent type selection
+        self.declare_parameter("agent_type", "ppo")
+        self.declare_parameter("image_topic", "board_image/compressed")
+        self.declare_parameter("dreamer_config_filename", "")
 
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
@@ -99,19 +106,46 @@ class Player(Node):
         self.heartbeat_received = False
         self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
 
-        # Initialize policy inference class
-        self.policy = PolicyInference(
-            weights_filename=self.get_parameter("weights_filename").value,
-            weights_zip_url=self.get_parameter("weights_zip_url").value,
-            nn_weights_dir=Path(__file__).resolve().parent.parent.parent.parent / "nn_weights",
-            device=self.get_parameter("device").value,
-            clip_actions=self.get_parameter("clip_actions").value,
-            enable_action_rescaling=self.get_parameter("enable_action_rescaling").value,
-            player_side=self.player_side,
-            board_dim_width=self.get_parameter("board_width").value,
-            board_dim_height=self.get_parameter("board_height").value,
-            logger=self.get_logger(),
-        )
+        # Initialize policy inference class based on agent type
+        self.agent_type = self.get_parameter("agent_type").value
+        nn_weights_dir = Path(__file__).resolve().parent.parent.parent.parent / "nn_weights"
+
+        if self.agent_type == "dreamer":
+            from .dreamer.dreamer_inference import DreamerInference
+
+            self.policy = DreamerInference(
+                weights_filename=self.get_parameter("weights_filename").value,
+                weights_zip_url=self.get_parameter("weights_zip_url").value,
+                nn_weights_dir=nn_weights_dir,
+                device=self.get_parameter("device").value,
+                player_side=self.player_side,
+                board_dim_width=self.get_parameter("board_width").value,
+                board_dim_height=self.get_parameter("board_height").value,
+                config_filename=self.get_parameter("dreamer_config_filename").value,
+                logger=self.get_logger(),
+            )
+
+            # Subscribe to camera images (same method as state estimator)
+            image_topic = self.get_parameter("image_topic").value
+            self.bridge = CvBridge()
+            self.latest_image = None
+            self.image_subscription = self.create_subscription(
+                CompressedImage, image_topic, self._image_callback, 10
+            )
+            self.get_logger().info(f"Subscribed to camera: {image_topic}")
+        else:
+            self.policy = PolicyInference(
+                weights_filename=self.get_parameter("weights_filename").value,
+                weights_zip_url=self.get_parameter("weights_zip_url").value,
+                nn_weights_dir=nn_weights_dir,
+                device=self.get_parameter("device").value,
+                clip_actions=self.get_parameter("clip_actions").value,
+                enable_action_rescaling=self.get_parameter("enable_action_rescaling").value,
+                player_side=self.player_side,
+                board_dim_width=self.get_parameter("board_width").value,
+                board_dim_height=self.get_parameter("board_height").value,
+                logger=self.get_logger(),
+            )
 
         # ROS2 setup
         self.subscription = self.create_subscription(
@@ -128,6 +162,7 @@ class Player(Node):
         self.homed_client = self.create_client(IsPlayerHomed, self.is_player_homed_service_name)
         self.home_calibrate_client = ActionClient(self, HomeAndCalibrate, self.home_and_calibrate_action_name)
 
+        self.get_logger().info(f"Agent type: {self.agent_type}")
         self.get_logger().info(f"Player side: {self.player_side}")
         self.get_logger().info(f"Subscribed to: {state_topic}")
         self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
@@ -178,6 +213,8 @@ class Player(Node):
         elif self.game_state == GameState.INTERACTION_DELAY:
             # Wait for interaction delay to pass
             if self.interaction_delay_timer is None:
+                # Reset RSSM state for new episode (no-op for PPO)
+                self.policy.reset_state()
                 self.get_logger().info(f"Starting interaction delay timer ({self.interaction_delay}s)")
                 self.interaction_delay_timer = self.create_timer(
                     self.interaction_delay, self._interaction_delay_complete
@@ -198,7 +235,8 @@ class Player(Node):
                 self.game_state = GameState.GAME_OVER
             else:
                 # Normal gameplay - compute and publish action
-                action = self.policy.get_action(msg)
+                image = getattr(self, "latest_image", None)
+                action = self.policy.get_action(msg, image)
 
             self.publish_action(action)
 
@@ -383,6 +421,13 @@ class Player(Node):
 
         # Reset state machine
         self.game_state = GameState.INITIALIZING
+
+    def _image_callback(self, msg: CompressedImage):
+        """Callback for receiving compressed camera images (Dreamer agent)."""
+        try:
+            self.latest_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as e:
+            self.get_logger().error(f"Failed to decompress image: {e}")
 
     def _magnet_recover_complete(self):
         """Handle magnet recovery completion."""

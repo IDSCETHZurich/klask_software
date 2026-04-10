@@ -24,15 +24,18 @@ def launch_setup(context, *args, **kwargs):
     # Get the player argument value
     player = LaunchConfiguration("player").perform(context)
 
-    # Get the weights_filename argument value (if provided)
+    # Get optional argument values
     weights_filename = LaunchConfiguration("weights_filename").perform(context)
+    agent_type = LaunchConfiguration("agent_type").perform(context)
 
     nodes = []
 
-    # Prepare additional parameters (only include weights_filename if provided)
+    # Prepare additional parameters (only include if provided)
     additional_params = {}
     if weights_filename:
         additional_params["weights_filename"] = weights_filename
+    if agent_type:
+        additional_params["agent_type"] = agent_type
 
     # Launch state estimator
     state_estimator_node = Node(
@@ -106,4 +109,10 @@ def generate_launch_description():
         description="Optional: Override weights filename from config file",
     )
 
-    return LaunchDescription([player_arg, weights_filename_arg, OpaqueFunction(function=launch_setup)])
+    agent_type_arg = DeclareLaunchArgument(
+        "agent_type",
+        default_value="",
+        description="Optional: Override agent type (ppo or dreamer)",
+    )
+
+    return LaunchDescription([player_arg, weights_filename_arg, agent_type_arg, OpaqueFunction(function=launch_setup)])

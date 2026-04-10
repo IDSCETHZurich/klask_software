@@ -216,7 +216,11 @@ class PolicyInference:
             self.logger.error(f"Failed to load checkpoint: {e}")
             raise
 
-    def get_action(self, msg: State) -> np.ndarray:
+    def reset_state(self):
+        """No-op for PPO (stateless policy). Exists for interface compatibility."""
+        pass
+
+    def get_action(self, msg: State, image: np.ndarray = None) -> np.ndarray:
         """Get action from State message using the policy network."""
         # Extract and transform observations (handles centering and player-side transformation)
         obs_base = self._map_observations(msg)
