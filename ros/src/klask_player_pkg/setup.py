@@ -28,6 +28,9 @@ setup(
         ],
     },
     entry_points={
-        "console_scripts": ["player_node = klask_player_pkg.player_node:main"],
+        "console_scripts": [
+            "player_node = klask_player_pkg.player_node:main",
+            "benchmark_node = klask_player_pkg.inference_benchmark_node:main",
+        ],
     },
 )

@@ -1,0 +1,21 @@
+/**:
+  ros__parameters:
+    # Benchmark configuration
+    num_steps: 100000 # Number of inference steps to measure (after warmup)
+    warmup_steps: 10000 # Number of warmup steps to skip before measuring
+
+    # Model configuration
+    weights_filename: "klask_ac_nn_v0.0.pth" # Name of the model file to load from nn_weights folder
+    weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
+    device: "cpu" # Options: "cpu", "cuda"
+
+    # Board configuration
+    board_width: 0.42 # meters
+    board_height: 0.32 # meters
+
+    # Player configuration
+    player_side: "left" # Options: "left", "right"
+
+    # Action rescaling configuration
+    clip_actions: 0.4 # Action clipping bound
+    enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
