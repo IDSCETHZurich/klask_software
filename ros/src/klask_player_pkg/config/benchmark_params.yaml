@@ -19,6 +19,7 @@
     # Agent type selection
     agent_type: "dreamer" # Options: "ppo", "dreamer"
     dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
+    debug_view: false # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
 
     # Action rescaling configuration (PPO only)
     clip_actions: 0.4 # Action clipping bound

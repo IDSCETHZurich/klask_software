@@ -49,6 +49,7 @@ class Player(Node):
         self.declare_parameter("agent_type", "ppo")
         self.declare_parameter("image_topic", "board_image/compressed")
         self.declare_parameter("dreamer_config_filename", "")
+        self.declare_parameter("debug_view", False)
 
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
@@ -122,6 +123,7 @@ class Player(Node):
                 board_dim_width=self.get_parameter("board_width").value,
                 board_dim_height=self.get_parameter("board_height").value,
                 config_filename=self.get_parameter("dreamer_config_filename").value,
+                debug_view=self.get_parameter("debug_view").value,
                 logger=self.get_logger(),
             )
 

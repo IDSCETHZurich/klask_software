@@ -1,20 +1,23 @@
 """Dreamer policy inference class — handles network loading and stateful inference."""
 
 import json
-import os
-import shutil
-import tempfile
-import urllib.request
-import zipfile
 
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from pathlib import Path
 from typing import Optional, Any
 
+from klask_player_pkg.utils import (
+    add_additional_state_features,
+    map_state_observations,
+    ensure_weights_available,
+)
+
 from .dreamer_config import DreamerModelConfig
-from .dreamer_network import MultiEncoder, RSSM, MLPHead, to_f32
+from .dreamer_network import MultiEncoder, RSSM, MLPHead
+from .debug import show_image_tensor
 from klask_interfaces.msg import State
 
 
@@ -31,6 +34,7 @@ class DreamerInference:
         board_dim_width: float = 0.42,
         board_dim_height: float = 0.32,
         config_filename: str = "",
+        debug_view: bool = False,
         logger: Optional[Any] = None,
     ):
         """Initialize Dreamer inference.
@@ -45,17 +49,19 @@ class DreamerInference:
             board_dim_height: Board height in meters.
             config_filename: Name of the config JSON file in nn_weights_dir.
                 If empty, looks for '<checkpoint_stem>_config.json' next to the checkpoint.
+            debug_view: If True, show the rotated ego-view image in an OpenCV window each step.
             logger: Optional logger object with info(), warn(), error() methods.
         """
         self.logger = logger
         self.device = device
         self.player_side = player_side
+        self.debug_view = debug_view
         self.board_dim_width = board_dim_width
         self.board_dim_height = board_dim_height
         self.act_dim = 2  # 2D velocity actions
 
         # Ensure weights are available
-        checkpoint_path = self._ensure_weights_available(weights_filename, weights_zip_url, nn_weights_dir)
+        checkpoint_path = ensure_weights_available(weights_filename, weights_zip_url, nn_weights_dir, self.logger)
 
         # Load model config (also sets self.image_size, self.obs_mode, self.max_velocity)
         config = self._load_config(checkpoint_path, config_filename)
@@ -196,19 +202,43 @@ class DreamerInference:
 
         # Process image: BGR → RGB, resize, package as tensor
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image_resized = cv2.resize(image_rgb, (self.image_size, self.image_size), interpolation=cv2.INTER_AREA)
+
         # (H, W, 3) uint8 → (1, H, W, 3) float32 [0, 255]
-        image_tensor = torch.from_numpy(image_resized).unsqueeze(0).to(dtype=torch.float32, device=self.device)
-        obs["image"] = image_tensor
+        image_tensor = torch.from_numpy(image_rgb).unsqueeze(0).to(dtype=torch.float32, device=self.device)
+
+        # rotate image to left or right player's perspective
+        if self.player_side == "left":
+            k = 1  # rotate 90 degrees counterclockwise for left player
+        else:
+            k = -1  # rotate 90 degrees clockwise for right player
+        image_tensor_ego = torch.rot90(image_tensor, k=k, dims=[1, 2])
+
+        # Pad image to expected size
+        image_tensor_ego = self._pad_image_to_target(image_tensor_ego, self.image_size, self.image_size)
+
+        if self.debug_view:
+            show_image_tensor(image_tensor_ego, window_name=f"dreamer_ego_{self.player_side}")
+
+        obs["image"] = image_tensor_ego
 
         # Optionally add state observations
         if self.obs_mode == "image_and_state":
-            obs_base = self._map_observations(msg)
-            obs_full = self._add_additional_features(obs_base)
+            obs_base = map_state_observations(msg, self.player_side, self.board_dim_width, self.board_dim_height)
+            obs_full = add_additional_state_features(obs_base)
             policy_tensor = torch.from_numpy(obs_full).unsqueeze(0).to(dtype=torch.float32, device=self.device)
             obs["policy"] = policy_tensor
 
         return obs
+
+    def _pad_image_to_target(images: torch.Tensor, target_h: int, target_w: int) -> torch.Tensor:
+        """Zero-pad image tensor (N, H, W, C) to (N, target_h, target_w, C)."""
+        _, h, w, _ = images.shape
+        pad_bottom = target_h - h
+        pad_right = target_w - w
+        if pad_bottom > 0 or pad_right > 0:
+            # For (N, H, W, C): pad W on the right and H on the bottom.
+            images = F.pad(images, (0, 0, 0, pad_right, 0, pad_bottom), value=0)
+        return images
 
     def _predict(self, obs_dict: dict) -> np.ndarray:
         """Run Dreamer inference: encode → RSSM step → actor."""
@@ -224,9 +254,7 @@ class DreamerInference:
             is_first = torch.tensor([[self._is_first]], dtype=torch.bool, device=self.device)
 
             # RSSM posterior step
-            stoch, deter, _ = self.rssm.obs_step(
-                self._stoch, self._deter, self._prev_action, embed, is_first
-            )
+            stoch, deter, _ = self.rssm.obs_step(self._stoch, self._deter, self._prev_action, embed, is_first)
 
             # Get features and action distribution
             feat = self.rssm.get_feat(stoch, deter)
@@ -243,184 +271,7 @@ class DreamerInference:
         scaled_action = (action * self.max_velocity).cpu().numpy().flatten()
         return scaled_action
 
-    # ---- Observation mapping (shared with PPO, duplicated for simplicity) ----
-
-    def _map_observations(self, msg: State):
-        """Extract observations from State message, center coordinates, and transform for player side.
-
-        Returns:
-            16-dimensional centered observation array.
-            Format: [player_pos, player_vel, opponent_pos, opponent_vel,
-                     ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
-        """
-        right_peg_pos = np.array([msg.right_peg.position.y, msg.right_peg.position.x], dtype=np.float32)
-        right_peg_vel = np.array([msg.right_peg.velocity.y, msg.right_peg.velocity.x], dtype=np.float32)
-        left_peg_pos = np.array([msg.left_peg.position.y, msg.left_peg.position.x], dtype=np.float32)
-        left_peg_vel = np.array([msg.left_peg.velocity.y, msg.left_peg.velocity.x], dtype=np.float32)
-        ball_pos = np.array([msg.ball.position.y, msg.ball.position.x], dtype=np.float32)
-        ball_vel = np.array([msg.ball.velocity.y, msg.ball.velocity.x], dtype=np.float32)
-        right_goal_pos = np.array([msg.right_goal_pos.y, msg.right_goal_pos.x], dtype=np.float32)
-        left_goal_pos = np.array([msg.left_goal_pos.y, msg.left_goal_pos.x], dtype=np.float32)
-
-        center_offset = np.array([self.board_dim_height / 2.0, self.board_dim_width / 2.0], dtype=np.float32)
-        right_peg_pos -= center_offset
-        left_peg_pos -= center_offset
-        ball_pos -= center_offset
-        right_goal_pos -= center_offset
-        left_goal_pos -= center_offset
-
-        if self.player_side == "left":
-            obs = np.concatenate([
-                left_peg_pos, left_peg_vel,
-                right_peg_pos, right_peg_vel,
-                ball_pos, ball_vel,
-                left_goal_pos, right_goal_pos,
-            ])
-        else:
-            obs = np.concatenate([
-                -right_peg_pos, -right_peg_vel,
-                -left_peg_pos, -left_peg_vel,
-                -ball_pos, -ball_vel,
-                -right_goal_pos, -left_goal_pos,
-            ])
-
-        return obs
-
-    def _add_additional_features(self, obs):
-        """Add geometric features (angles and distances) to observations.
-
-        Input: 16 values [player_pos, player_vel, opp_pos, opp_vel,
-                          ball_pos, ball_vel, goal_player_pos, goal_opponent_pos]
-        Output: 20 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, 8 features]
-        """
-        player_pos = obs[0:2]
-        opponent_pos = obs[4:6]
-        ball_pos = obs[8:10]
-        goal_player_pos = obs[12:14]
-        goal_opponent_pos = obs[14:16]
-
-        vec_to_opp_goal = goal_opponent_pos - player_pos
-        vec_to_ball = ball_pos - player_pos
-        vec_opp_to_goal = goal_player_pos - opponent_pos
-        vec_ball_to_opp = ball_pos - opponent_pos
-        vec_opp_to_player = opponent_pos - player_pos
-        vec_ball_to_goal = goal_player_pos - player_pos  # Match the original bug!
-        vec_ball_to_opp_goal = goal_opponent_pos - ball_pos
-
-        angle_pegball_pegoppgoal = self._angle_between_vectors(vec_to_ball, vec_to_opp_goal)
-        angle_oppball_oppgoal = self._angle_between_vectors(vec_opp_to_goal, vec_ball_to_opp)
-        angle_pegball_pegopp = self._angle_between_vectors(vec_to_ball, vec_opp_to_player)
-        angle_oppball_pegopp = self._angle_between_vectors(vec_ball_to_opp, -vec_opp_to_player)
-
-        distance_ball_goal = np.linalg.norm(vec_ball_to_goal)
-        distance_ball_oppgoal = np.linalg.norm(vec_ball_to_opp_goal)
-        distance_ball_player = np.linalg.norm(vec_to_ball)
-        distance_ball_opp = np.linalg.norm(vec_ball_to_opp)
-
-        extra_features = np.array([
-            angle_pegball_pegoppgoal, angle_oppball_oppgoal,
-            angle_pegball_pegopp, angle_oppball_pegopp,
-            distance_ball_goal, distance_ball_oppgoal,
-            distance_ball_player, distance_ball_opp,
-        ], dtype=np.float32)
-
-        return np.concatenate([obs[:12], extra_features])
-
-    def _angle_between_vectors(self, v1, v2):
-        """Compute angle between two vectors."""
-        dot = np.dot(v1, v2)
-        norm_v1 = np.linalg.norm(v1)
-        norm_v2 = np.linalg.norm(v2)
-        cos_theta = dot / (norm_v1 * norm_v2 + 1e-8)
-        cos_theta = np.clip(cos_theta, -1.0, 1.0)
-        return np.arccos(cos_theta)
-
     # ---- Checkpoint management ----
-
-    def _ensure_weights_available(self, weights_filename, zip_url, nn_weights_dir):
-        """Ensure weights file exists, download and extract zip if necessary."""
-        weights_dir = nn_weights_dir
-        weights_path = weights_dir / weights_filename
-
-        if weights_path.exists():
-            self.logger.info(f"Weights file found: {weights_path}")
-            return weights_path
-
-        self.logger.info(f"Weights file not found. Downloading weights zip from: {zip_url}")
-
-        if weights_dir.exists():
-            self.logger.info(f"Cleaning existing weights directory contents: {weights_dir}")
-            for item in weights_dir.iterdir():
-                try:
-                    if item.is_file():
-                        item.unlink()
-                    elif item.is_dir():
-                        shutil.rmtree(item)
-                except Exception as e:
-                    self.logger.warn(f"Could not remove {item}: {e}")
-        else:
-            weights_dir.mkdir(parents=True, exist_ok=True)
-
-        self._download_and_extract_weights(zip_url, weights_dir)
-
-        if weights_path.exists():
-            self.logger.info(f"Weights extracted successfully: {weights_path}")
-            return weights_path
-        else:
-            available_files = [f.name for f in weights_dir.glob("*.pt")] + [f.name for f in weights_dir.glob("*.pth")]
-            error_msg = (
-                f"Weights file '{weights_filename}' not found after extraction. Available files: {available_files}"
-            )
-            self.logger.error(error_msg)
-            raise FileNotFoundError(error_msg)
-
-    def _download_and_extract_weights(self, url, destination_dir):
-        """Download weights zip file and extract to destination directory."""
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_file:
-                tmp_path = tmp_file.name
-
-                self.logger.info(f"Downloading weights zip to temporary file: {tmp_path}")
-
-                req = urllib.request.Request(url)
-                req.add_header("User-Agent", "Mozilla/5.0")
-
-                with urllib.request.urlopen(req) as response:
-                    chunk_size = 8192
-                    total_size = 0
-                    while True:
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        tmp_file.write(chunk)
-                        total_size += len(chunk)
-                        if total_size % (chunk_size * 100) == 0:
-                            self.logger.info(f"Downloaded {total_size / 1024 / 1024:.2f} MB...")
-
-                self.logger.info(f"Download complete: {total_size / 1024 / 1024:.2f} MB")
-
-            self.logger.info(f"Extracting weights to: {destination_dir}")
-            with zipfile.ZipFile(tmp_path, "r") as zip_ref:
-                zip_ref.extractall(destination_dir)
-                extracted_files = zip_ref.namelist()
-                self.logger.info(f"Extracted {len(extracted_files)} files")
-
-            # Flatten nested directory if zip contained a single root folder
-            root_items = list(destination_dir.iterdir())
-            if len(root_items) == 1 and root_items[0].is_dir():
-                nested_dir = root_items[0]
-                for item in nested_dir.iterdir():
-                    item.rename(destination_dir / item.name)
-                nested_dir.rmdir()
-
-            os.unlink(tmp_path)
-            self.logger.info("Extraction complete")
-
-        except Exception as e:
-            self.logger.error(f"Failed to download and extract weights: {e}")
-            if "tmp_path" in locals() and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-            raise
 
     def _load_checkpoint(self, checkpoint_path):
         """Load model weights from checkpoint file."""

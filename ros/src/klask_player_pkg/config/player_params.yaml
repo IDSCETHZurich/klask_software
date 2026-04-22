@@ -1,9 +1,9 @@
 /**:
   ros__parameters:
     # Model configuration
-    weights_filename: "klask_ac_nn_v0.0.pth" # Name of the model file to load from nn_weights folder
+    weights_filename: "r3wvqils_sprite_128_5M_inference.pt" # Name of the model file to load from nn_weights folder
     weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
-    device: "cpu" # Options: "cpu", "cuda"
+    device: "cuda" # Options: "cpu", "cuda"
 
     # Board configuration
     board_width: 0.42 # meters
@@ -13,9 +13,9 @@
     player_side: "left" # Options: "left", "right" - will be overridden by launch file
 
     # Agent type selection
-    agent_type: "ppo" # Options: "ppo", "dreamer"
-    image_topic: "board_image/compressed" # Camera topic for Dreamer agent
+    agent_type: "dreamer" # Options: "ppo", "dreamer"
     dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
+    debug_view: true # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
 
     # Action rescaling configuration (PPO only)
     clip_actions: 0.4 # Action clipping bound
@@ -34,7 +34,8 @@
 
     # ROS topic configuration
     state_topic: "/board_state"
-    cmd_vel_topic: "cmd_vel/left_player" # Will be overridden by launch file
+    image_topic: "/board_image/downscaled/compressed" # Camera topic for Dreamer agent
+    cmd_vel_topic: "/cmd_vel/left_player" # Will be overridden by launch file
 
     # QoS settings
     subscription_queue_size: 1
