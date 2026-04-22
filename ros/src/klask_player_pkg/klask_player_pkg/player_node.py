@@ -2,6 +2,7 @@
 
 import rclpy
 import numpy as np
+import torch
 from pathlib import Path
 from rclpy.node import Node
 from rclpy.action import ActionClient
@@ -50,6 +51,9 @@ class Player(Node):
         self.declare_parameter("image_topic", "board_image/compressed")
         self.declare_parameter("dreamer_config_filename", "")
         self.declare_parameter("debug_view", False)
+        self.declare_parameter("opponent_action_mode", "zero")
+        self.declare_parameter("opponent_cmd_vel_topic", "")
+        self.declare_parameter("opponent_cmd_vel_stale_threshold", 0.2)
 
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
@@ -124,6 +128,7 @@ class Player(Node):
                 board_dim_height=self.get_parameter("board_height").value,
                 config_filename=self.get_parameter("dreamer_config_filename").value,
                 debug_view=self.get_parameter("debug_view").value,
+                opponent_action_mode=self.get_parameter("opponent_action_mode").value,
                 logger=self.get_logger(),
             )
 
@@ -133,6 +138,10 @@ class Player(Node):
             self.latest_image = None
             self.image_subscription = self.create_subscription(CompressedImage, image_topic, self._image_callback, 10)
             self.get_logger().info(f"Subscribed to camera: {image_topic}")
+
+            # Set up opponent cmd_vel overhear if requested
+            if self.get_parameter("opponent_action_mode").value == "overhear":
+                self._setup_opponent_overhear(cmd_vel_topic)
         else:
             self.policy = PolicyInference(
                 weights_filename=self.get_parameter("weights_filename").value,
@@ -258,7 +267,7 @@ class Player(Node):
             # Move magnet towards center
             recovery_time = 1.0  # seconds
             recovery_speed = 0.01  # m/s
-            self.publish_action(np.array([0.0, recovery_speed * self.center_direction]))
+            self.publish_action(np.array([recovery_speed * self.center_direction, 0.0]))
 
             if self.magnet_recover_timer is None:
                 self.get_logger().info(f"Starting moving the magnet away from goal for {recovery_time}s")
@@ -277,10 +286,16 @@ class Player(Node):
         self.last_game_state = self.game_state
 
     def publish_action(self, action):
-        """Publish action as velocity command."""
+        """Publish action as velocity command.
+
+        Args:
+            action: np.array of shape (2,) representing [x_velocity, y_velocity] in image frame
+        
+        Publishes Twist message in image frame
+        """
         msg = Twist()
-        msg.linear.x = float(action[1])
-        msg.linear.y = float(action[0])
+        msg.linear.x = float(action[0])
+        msg.linear.y = float(action[1])
         self.publisher.publish(msg)
 
     def _check_calibration_status(self):
@@ -428,6 +443,97 @@ class Player(Node):
             self.latest_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as e:
             self.get_logger().error(f"Failed to decompress image: {e}")
+
+    def _setup_opponent_overhear(self, own_cmd_vel_topic: str):
+        """Subscribe to the opponent's cmd_vel topic and wire the converter.
+
+        Auto-derives the topic by token-swapping 'left_player' <-> 'right_player'
+        in our own cmd_vel_topic when the user leaves opponent_cmd_vel_topic empty.
+        """
+        self._latest_opponent_twist = None
+        self._latest_opponent_stamp = None
+        self._last_stale_warn_stamp = None
+
+        self._opponent_stale_threshold = float(
+            self.get_parameter("opponent_cmd_vel_stale_threshold").value
+        )
+
+        topic = self.get_parameter("opponent_cmd_vel_topic").value
+        if not topic:
+            # Token-swap on our own cmd_vel topic
+            if "left_player" in own_cmd_vel_topic:
+                topic = own_cmd_vel_topic.replace("left_player", "right_player")
+            elif "right_player" in own_cmd_vel_topic:
+                topic = own_cmd_vel_topic.replace("right_player", "left_player")
+            else:
+                raise RuntimeError(
+                    f"opponent_action_mode='overhear' with empty opponent_cmd_vel_topic, "
+                    f"but cmd_vel_topic='{own_cmd_vel_topic}' does not contain "
+                    f"'left_player' or 'right_player' for token-swap. Set "
+                    f"opponent_cmd_vel_topic explicitly."
+                )
+
+        qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.opponent_cmd_vel_subscription = self.create_subscription(
+            Twist, topic, self._opponent_cmd_vel_callback, qos
+        )
+        self.policy.set_opponent_action_source(self._overhear_opponent_action)
+        self.get_logger().info(
+            f"Overhear enabled — subscribed to opponent cmd_vel: {topic} "
+            f"(stale threshold: {self._opponent_stale_threshold}s)"
+        )
+
+    def _opponent_cmd_vel_callback(self, msg: Twist):
+        """Store the latest opponent Twist with its arrival timestamp."""
+        self._latest_opponent_twist = msg
+        self._latest_opponent_stamp = self.get_clock().now()
+
+    def _overhear_opponent_action(self) -> torch.Tensor:
+        """Convert the latest opponent Twist into a (1, 2) WM-input tensor.
+
+        Mirrors the image->ego mapping in map_state_observations: a pure
+        [msg.y, msg.x] index swap (no axis sign flip), followed by a full-vector
+        negation iff the opponent is the right player (i.e. we're left).
+        """
+        device = self.policy.device
+        zeros = torch.zeros(1, 2, dtype=torch.float32, device=device)
+
+        stamp = self._latest_opponent_stamp
+        if stamp is None:
+            self._warn_stale("no opponent cmd_vel received yet")
+            return zeros
+        age = (self.get_clock().now() - stamp).nanoseconds * 1e-9
+        if age > self._opponent_stale_threshold:
+            self._warn_stale(f"opponent cmd_vel stale ({age:.2f}s > {self._opponent_stale_threshold}s)")
+            return zeros
+
+        twist = self._latest_opponent_twist
+        max_v = self.policy.max_velocity
+
+        # Step 1: image -> left-player ego (pure [msg.y, msg.x] index swap)
+        opp_ego = np.array(
+            [twist.linear.y / max_v, twist.linear.x / max_v],
+            dtype=np.float32,
+        )
+
+        # Step 2: left-ego -> opponent's ego
+        # Opponent LEFT  (I'm right) -> no change
+        # Opponent RIGHT (I'm left)  -> negate (180 deg flip)
+        if self.player_side == "left":
+            opp_ego = -opp_ego
+
+        # Step 3: pack as (1, 2) tensor on the model's device; defensive clamp
+        return torch.tensor([opp_ego], dtype=torch.float32, device=device).clamp(-1.0, 1.0)
+
+    def _warn_stale(self, reason: str):
+        """Throttled warning when overhear data is unavailable/stale (at most every 1s)."""
+        now = self.get_clock().now()
+        if (
+            self._last_stale_warn_stamp is None
+            or (now - self._last_stale_warn_stamp).nanoseconds * 1e-9 > 1.0
+        ):
+            self.get_logger().warn(f"overhear: {reason} — falling back to zeros")
+            self._last_stale_warn_stamp = now
 
     def _magnet_recover_complete(self):
         """Handle magnet recovery completion."""

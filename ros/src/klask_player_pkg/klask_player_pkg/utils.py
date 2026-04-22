@@ -10,6 +10,8 @@ from klask_interfaces.msg import State
 
 def map_state_observations(msg: State, player_side: str, board_dim_width: float, board_dim_height: float) -> np.ndarray:
     """Extract observations from State message, center coordinates, and transform for player side.
+    
+    It transforms form image frame (center top-left, y-down) to ego-centric frame (center-origin, y-forward) and maps player/opponent based on player_side.
 
     Returns:
         16-dimensional centered observation array ready for feature computation.
@@ -76,7 +78,7 @@ def add_additional_state_features(obs: np.ndarray) -> np.ndarray:
     Returns: 8 additional features:
              In total 20 values [player_pos, player_vel, opp_pos, opp_vel, ball_pos, ball_vel, 8 features]
 
-    Note: All coordinates are already centered and in engineering units (meters and m/s).
+    Note: All coordinates are already in ego frame and in engineering units (meters and m/s).
     """
     # Extract components
     player_pos = obs[0:2]

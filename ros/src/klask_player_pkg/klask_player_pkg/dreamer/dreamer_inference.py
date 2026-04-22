@@ -21,6 +21,9 @@ from .debug import show_image_tensor
 from klask_interfaces.msg import State
 
 
+_VALID_OPPONENT_ACTION_MODES = ("zero", "random", "estimator", "overhear")
+
+
 class DreamerInference:
     """Handle Dreamer network loading and stateful RSSM inference."""
 
@@ -35,6 +38,7 @@ class DreamerInference:
         board_dim_height: float = 0.32,
         config_filename: str = "",
         debug_view: bool = False,
+        opponent_action_mode: str = "zero",
         logger: Optional[Any] = None,
     ):
         """Initialize Dreamer inference.
@@ -50,15 +54,30 @@ class DreamerInference:
             config_filename: Name of the config JSON file in nn_weights_dir.
                 If empty, looks for '<checkpoint_stem>_config.json' next to the checkpoint.
             debug_view: If True, show the rotated ego-view image in an OpenCV window each step.
+            opponent_action_mode: How to fill the opponent half of the RSSM prev_action
+                when the checkpoint was trained with opponent_separation. One of
+                'zero' | 'random' | 'estimator' | 'overhear'. Ignored when the
+                checkpoint does not use opponent separation. Modes 'estimator' and
+                'overhear' require a callable registered via set_opponent_estimator
+                or set_opponent_action_source respectively.
             logger: Optional logger object with info(), warn(), error() methods.
         """
+        if opponent_action_mode not in _VALID_OPPONENT_ACTION_MODES:
+            raise ValueError(
+                f"Invalid opponent_action_mode '{opponent_action_mode}'. "
+                f"Expected one of {_VALID_OPPONENT_ACTION_MODES}."
+            )
+
         self.logger = logger
         self.device = device
         self.player_side = player_side
         self.debug_view = debug_view
         self.board_dim_width = board_dim_width
         self.board_dim_height = board_dim_height
-        self.act_dim = 2  # 2D velocity actions
+        self.act_dim = 2  # 2D velocity actions (player action)
+        self._opponent_action_mode = opponent_action_mode
+        self._opponent_estimator = None
+        self._opponent_action_source = None
 
         # Ensure weights are available
         checkpoint_path = ensure_weights_available(weights_filename, weights_zip_url, nn_weights_dir, self.logger)
@@ -122,11 +141,22 @@ class DreamerInference:
         self.image_size = raw.get("image_size", 64)
         self.obs_mode = raw.get("obs_mode", "image")
         self.max_velocity = raw.get("max_velocity", 0.6)
+        self.opponent_separation = bool(raw.get("opponent_separation", False))
+        self.wm_act_dim = self.act_dim * 2 if self.opponent_separation else self.act_dim
 
         self.logger.info(
             f"Config env params — image_size: {self.image_size}, "
             f"obs_mode: {self.obs_mode}, max_velocity: {self.max_velocity}"
         )
+        self.logger.info(
+            f"opponent_separation: {self.opponent_separation} "
+            f"(wm_act_dim: {self.wm_act_dim}, opponent_action_mode: {self._opponent_action_mode})"
+        )
+        if not self.opponent_separation and self._opponent_action_mode != "zero":
+            self.logger.info(
+                f"opponent_action_mode='{self._opponent_action_mode}' has no effect — "
+                f"checkpoint was not trained with opponent_separation."
+            )
 
         return DreamerModelConfig.from_json(str(config_path), device=self.device)
 
@@ -142,16 +172,17 @@ class DreamerInference:
         self.encoder = MultiEncoder(config.encoder, obs_shapes)
         embed_size = self.encoder.out_dim
 
-        # Build RSSM
-        self.rssm = RSSM(config.rssm, embed_size, self.act_dim)
+        # Build RSSM — 4-D action input when opponent_separation (2 player + 2 opponent)
+        self.rssm = RSSM(config.rssm, embed_size, self.wm_act_dim)
 
-        # Build actor
+        # Actor still outputs only the 2-D player action
         config.actor.shape = [self.act_dim]
         self.actor = MLPHead(config.actor, self.rssm.feat_size)
 
         self.logger.info(
             f"Model built: encoder out_dim={embed_size}, "
-            f"RSSM feat_size={self.rssm.feat_size}, act_dim={self.act_dim}"
+            f"RSSM feat_size={self.rssm.feat_size}, "
+            f"wm_act_dim={self.wm_act_dim}, actor_act_dim={self.act_dim}"
         )
 
     def reset_state(self):
@@ -159,18 +190,66 @@ class DreamerInference:
         stoch, deter = self.rssm.initial(1)
         self._stoch = stoch.to(self.device)
         self._deter = deter.to(self.device)
-        self._prev_action = torch.zeros(1, self.act_dim, dtype=torch.float32, device=self.device)
+        self._prev_action = torch.zeros(1, self.wm_act_dim, dtype=torch.float32, device=self.device)
         self._is_first = True
+        self._debug_step = 0  # per-episode step counter (see _predict debug log)
+
+    def set_opponent_estimator(self, estimator):
+        """Register a callable that returns a (1, act_dim) tensor in [-1, 1].
+
+        Only used when opponent_action_mode == 'estimator'. The estimator is
+        invoked with no arguments for now; a future signature with richer context
+        (state, previous player action, etc.) can be added here when the predictor
+        lands.
+        """
+        self._opponent_estimator = estimator
+
+    def set_opponent_action_source(self, source):
+        """Register a callable that returns a (1, act_dim) tensor in [-1, 1].
+
+        Used when opponent_action_mode == 'overhear' — typically the player_node
+        subscribes to the opponent's cmd_vel topic and passes a converter that
+        produces the opponent action in the WM's ego frame. The source is
+        responsible for its own staleness/fallback behavior; this class does not
+        perform freshness checks.
+        """
+        self._opponent_action_source = source
+
+    def _sample_opponent_action(self) -> torch.Tensor:
+        """Return a (1, act_dim) opponent action in the WM's [-1, 1] input space.
+
+        Matches r2dreamer's imagination distribution — no max_velocity scaling —
+        because the RSSM's Deter layer was trained seeing actions in this range.
+        """
+        if self._opponent_action_mode == "zero":
+            return torch.zeros(1, self.act_dim, dtype=torch.float32, device=self.device)
+        if self._opponent_action_mode == "random":
+            return 2.0 * torch.rand(1, self.act_dim, dtype=torch.float32, device=self.device) - 1.0
+        if self._opponent_action_mode == "estimator":
+            if self._opponent_estimator is None:
+                raise RuntimeError(
+                    "opponent_action_mode='estimator' but no estimator registered — "
+                    "call DreamerInference.set_opponent_estimator(...) before get_action()."
+                )
+            return self._opponent_estimator()
+        if self._opponent_action_mode == "overhear":
+            if self._opponent_action_source is None:
+                raise RuntimeError(
+                    "opponent_action_mode='overhear' but no action source registered — "
+                    "call DreamerInference.set_opponent_action_source(...) before get_action()."
+                )
+            return self._opponent_action_source()
+        raise RuntimeError(f"Unreachable: opponent_action_mode={self._opponent_action_mode}")
 
     def get_action(self, msg: State, image: np.ndarray = None) -> np.ndarray:
         """Get action from State message and optional camera image.
 
         Args:
-            msg: ROS State message with board state information.
-            image: BGR uint8 image from camera (via CvBridge). Required.
+            msg: ROS State message with board state information (image frame coordinates).
+            image: BGR uint8 image from camera (via CvBridge) (image frame coordinates).
 
         Returns:
-            2D velocity action array [action_y, action_x].
+            action: np.array of shape (2,) representing action in image frame
         """
         if image is None:
             self.logger.warn("No image available for Dreamer inference, returning zero action")
@@ -186,7 +265,10 @@ class DreamerInference:
         if self.player_side == "right":
             action = -action
 
-        return action
+        # transform action from ego frame to image frame
+        action_image_frame = np.array([action[1], action[0]], dtype=np.float32)
+
+        return action_image_frame
 
     def _build_obs_dict(self, msg: State, image: np.ndarray) -> dict:
         """Build observation dictionary for the Dreamer encoder.
@@ -198,6 +280,17 @@ class DreamerInference:
         Returns:
             Dict with "image" tensor and optionally "policy" tensor.
         """
+        # TEMP (remove after diagnosis): frozen-image test.
+        # Cache the first received image and reuse it forever so that every
+        # inference step sees an identical observation. A working actor should
+        # produce a stable (or at most slowly-drifting) action under this
+        # condition; if actions still oscillate wildly, the bug is in the
+        # RSSM/actor pipeline, not in image content or temporal dynamics.
+        if not hasattr(self, "_frozen_image"):
+            self._frozen_image = image.copy()
+            self.logger.warn("[dreamer] FROZEN-IMAGE TEST ACTIVE — first frame cached and reused")
+        image = self._frozen_image
+
         obs = {}
 
         # Process image: BGR → RGB, resize, package as tensor
@@ -230,7 +323,7 @@ class DreamerInference:
 
         return obs
 
-    def _pad_image_to_target(images: torch.Tensor, target_h: int, target_w: int) -> torch.Tensor:
+    def _pad_image_to_target(self, images: torch.Tensor, target_h: int, target_w: int) -> torch.Tensor:
         """Zero-pad image tensor (N, H, W, C) to (N, target_h, target_w, C)."""
         _, h, w, _ = images.shape
         pad_bottom = target_h - h
@@ -261,10 +354,29 @@ class DreamerInference:
             action_dist = self.actor(feat)
             action = action_dist.mode  # deterministic: tanh(mean) ∈ [-1, 1]
 
-            # Update persistent state
+            # Update persistent state. When opponent_separation is on, the RSSM
+            # expects prev_action = concat([player_action, opponent_action]).
             self._stoch = stoch
             self._deter = deter
-            self._prev_action = action
+            if self.opponent_separation:
+                opp = self._sample_opponent_action()
+                self._prev_action = torch.cat([action, opp], dim=-1)
+            else:
+                self._prev_action = action
+
+            # DEBUG (remove after diagnosis): per-step inference trace
+            self._debug_step = getattr(self, "_debug_step", 0) + 1
+            action_list = action.detach().cpu().numpy().flatten().tolist()
+            prev_list = self._prev_action.detach().cpu().numpy().flatten().tolist()
+            action_str = ", ".join(f"{v:+.3f}" for v in action_list)
+            prev_str = ", ".join(f"{v:+.3f}" for v in prev_list)
+            self.logger.info(
+                f"[dreamer] step={self._debug_step:04d} is_first={int(self._is_first)} "
+                f"action=[{action_str}] prev=[{prev_str}] "
+                f"feat_norm={feat.norm().item():6.2f} stoch_norm={stoch.norm().item():6.2f} "
+                f"deter_norm={deter.norm().item():6.2f}"
+            )
+
             self._is_first = False
 
         # Scale action by max_velocity

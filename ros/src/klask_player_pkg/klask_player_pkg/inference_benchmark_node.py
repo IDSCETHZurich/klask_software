@@ -38,6 +38,7 @@ class InferenceBenchmark(Node):
         self.declare_parameter("agent_type", "ppo")
         self.declare_parameter("dreamer_config_filename", "")
         self.declare_parameter("debug_view", False)
+        self.declare_parameter("opponent_action_mode", "zero")
 
         # Get parameters
         self.num_steps = self.get_parameter("num_steps").value
@@ -62,6 +63,7 @@ class InferenceBenchmark(Node):
                 board_dim_height=self.board_height,
                 config_filename=self.get_parameter("dreamer_config_filename").value,
                 debug_view=self.get_parameter("debug_view").value,
+                opponent_action_mode=self.get_parameter("opponent_action_mode").value,
                 logger=self.get_logger(),
             )
         else:

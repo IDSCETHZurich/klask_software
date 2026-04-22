@@ -16,6 +16,9 @@
     agent_type: "dreamer" # Options: "ppo", "dreamer"
     dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
     debug_view: true # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
+    opponent_action_mode: "zero" # Opponent action source for separated-opponent Dreamer (Dreamer only): "zero" | "random" | "estimator" | "overhear". Ignored when checkpoint was not trained with opponent_separation.
+    opponent_cmd_vel_topic: "" # Topic to overhear when opponent_action_mode="overhear". Empty = auto-derive by swapping "left_player" <-> "right_player" in cmd_vel_topic.
+    opponent_cmd_vel_stale_threshold: 0.2 # Seconds; opponent cmd_vel older than this is treated as missing (zeros fallback).
 
     # Action rescaling configuration (PPO only)
     clip_actions: 0.4 # Action clipping bound

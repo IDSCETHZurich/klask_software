@@ -44,6 +44,19 @@ def _filter_to_fields(data: dict, dataclass_type) -> dict:
     return {k: v for k, v in (data or {}).items() if k in allowed}
 
 
+def _parse_opponent_separation(resolved: dict) -> bool:
+    """Return whether the training run used opponent_separation.
+
+    r2dreamer's training config exposes `opponent_separation` either as a scalar
+    bool or as a nested struct with an `enabled` key. Mirror the unpacking done
+    in evaluate_dreamer.py so the inference JSON carries a single bool.
+    """
+    raw = resolved.get("opponent_separation", False)
+    if isinstance(raw, dict):
+        return bool(raw.get("enabled", False))
+    return bool(raw)
+
+
 def build_inference_config(resolved: dict) -> dict:
     """Project a resolved training config onto the inference JSON schema."""
     model = resolved.get("model", resolved) or {}
@@ -86,6 +99,7 @@ def build_inference_config(resolved: dict) -> dict:
         "image_size": image_size,
         "obs_mode": obs_mode,
         "max_velocity": max_velocity,
+        "opponent_separation": _parse_opponent_separation(resolved),
         "rssm": rssm,
         "encoder": encoder,
         "actor": actor,
@@ -153,7 +167,7 @@ def main():
     resolved = OmegaConf.to_container(cfg, resolve=True)
     config_dict = build_inference_config(resolved)
 
-    config_path = output_dir / f"{checkpoint_path.stem}_config.json"
+    config_path = output_dir / f"{checkpoint_path.stem}_inference_config.json"
     with open(config_path, "w") as f:
         json.dump(config_dict, f, indent=2)
     print(f"Saved config: {config_path}")

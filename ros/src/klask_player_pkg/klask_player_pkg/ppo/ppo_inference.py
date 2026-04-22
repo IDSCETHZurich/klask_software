@@ -123,8 +123,13 @@ class PolicyInference:
         pass
 
     def get_action(self, msg: State, image: np.ndarray = None) -> np.ndarray:
-        """Get action from State message using the policy network."""
-        # Extract and transform observations (handles centering and player-side transformation)
+        """Get action from State message using the policy network.
+
+        Args:           msg: State message containing game state information (image frame coordinates)
+                        image: Optional raw image data (not used in this policy but included for interface compatibility)
+        Returns:        action: np.array of shape (2,) representing action in image frame
+        """
+        # Extract and transform observations (from image frame to ego-centric frame)
         obs_base = map_state_observations(msg, self.player_side, self.board_dim_width, self.board_dim_height)
 
         # Compute additional features
@@ -136,8 +141,11 @@ class PolicyInference:
         # Negate action for right player (flip direction)
         if self.player_side == "right":
             action = -action
+        
+        # transform action from ego frame to image frame
+        action_image_frame = np.array([action[1], action[0]], dtype=np.float32)
 
-        return action
+        return action_image_frame
 
     def _predict(self, obs):
         """Get action from policy network."""
