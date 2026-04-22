@@ -71,7 +71,7 @@ def generate_launch_description():
     """Launch the Klask policy inference node(s) with parameters.
 
     Launch arguments:
-        player: Which player to launch ('left', 'right', or 'both'). Default: 'left'
+        player: Which player to launch ('left', 'right', or 'both'). Default: 'both'
         weights_filename: Optional weights filename to override config file value
 
     Examples:
