@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from .ppo.policy_inference import PolicyInference
+from .ppo.ppo_inference import PolicyInference
 from .game_state import GameState
 from klask_interfaces.msg import State
 from klask_interfaces.srv import GetCalibrationStatus, IsPlayerHomed
@@ -129,9 +129,7 @@ class Player(Node):
             image_topic = self.get_parameter("image_topic").value
             self.bridge = CvBridge()
             self.latest_image = None
-            self.image_subscription = self.create_subscription(
-                CompressedImage, image_topic, self._image_callback, 10
-            )
+            self.image_subscription = self.create_subscription(CompressedImage, image_topic, self._image_callback, 10)
             self.get_logger().info(f"Subscribed to camera: {image_topic}")
         else:
             self.policy = PolicyInference(

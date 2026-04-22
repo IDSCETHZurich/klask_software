@@ -63,7 +63,7 @@ class InferenceBenchmark(Node):
                 logger=self.get_logger(),
             )
         else:
-            from .ppo.policy_inference import PolicyInference
+            from .ppo.ppo_inference import PolicyInference
 
             self.policy = PolicyInference(
                 weights_filename=self.get_parameter("weights_filename").value,

@@ -8,7 +8,7 @@ import zipfile
 import tempfile
 from pathlib import Path
 from typing import Optional, Any
-from .policy_network import PolicyNetwork
+from .ppo_network import PolicyNetwork
 from klask_interfaces.msg import State
 
 
