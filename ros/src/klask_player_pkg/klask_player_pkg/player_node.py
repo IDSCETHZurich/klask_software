@@ -54,6 +54,19 @@ class Player(Node):
         self.declare_parameter("opponent_action_mode", "zero")
         self.declare_parameter("opponent_cmd_vel_topic", "")
         self.declare_parameter("opponent_cmd_vel_stale_threshold", 0.2)
+        # Inference timer rate (Hz). Decouples inference cadence from State-message arrival
+        # so the actuator model (trained at a fixed 50 Hz) sees regular-interval commands.
+        self.declare_parameter("inference_rate_hz", 50.0)
+        # Optional rate-of-change clip on the policy's action (applied BEFORE EMA).
+        # Bounds |action_t - action_{t-1}| per axis to at most max_delta (m/s per step).
+        # At inference_rate_hz, this caps acceleration at max_delta * inference_rate_hz (m/s^2).
+        self.declare_parameter("action_rate_clip_enabled", False)
+        self.declare_parameter("action_rate_clip_max_delta", 0.1)
+        # Optional EMA smoothing on the policy's action before publish.
+        #   smoothed = alpha * new + (1 - alpha) * smoothed_prev
+        # alpha=1.0 → no smoothing; 0.8 → very slight; 0.5 → medium.
+        self.declare_parameter("action_smoothing_enabled", False)
+        self.declare_parameter("action_smoothing_alpha", 0.8)
 
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
@@ -99,6 +112,23 @@ class Player(Node):
         self.interaction_delay_timer = None
         self.magnet_recover_timer = None
 
+        # Latest received State message / camera image. The subscription
+        # callbacks just store here; the fixed-rate inference timer reads them.
+        # Separating write and read gives the actuator model the jitter-free
+        # cadence it was trained on. `latest_image` stays None under PPO since
+        # PPO doesn't subscribe to the camera topic.
+        self.latest_state_msg = None
+        self.latest_image = None
+
+        # Action post-processing state. Order per tick: raw action → rate clip → EMA → publish.
+        # Both stages are reset when a new episode begins (INTERACTION_DELAY entry).
+        self._action_rate_clip_enabled = bool(self.get_parameter("action_rate_clip_enabled").value)
+        self._action_rate_clip_max_delta = float(self.get_parameter("action_rate_clip_max_delta").value)
+        self._action_rate_clipped = None
+        self._action_smoothing_enabled = bool(self.get_parameter("action_smoothing_enabled").value)
+        self._action_smoothing_alpha = float(self.get_parameter("action_smoothing_alpha").value)
+        self._action_smoothed = None
+
         # Heartbeat watchdog
         self.heartbeat_timeout = self.get_parameter("heartbeat_timeout").value
         heartbeat_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
@@ -132,10 +162,10 @@ class Player(Node):
                 logger=self.get_logger(),
             )
 
-            # Subscribe to camera images (same method as state estimator)
+            # Subscribe to camera images (same method as state estimator).
+            # self.latest_image is initialized above to None for both agent types.
             image_topic = self.get_parameter("image_topic").value
             self.bridge = CvBridge()
-            self.latest_image = None
             self.image_subscription = self.create_subscription(CompressedImage, image_topic, self._image_callback, 10)
             self.get_logger().info(f"Subscribed to camera: {image_topic}")
 
@@ -165,6 +195,22 @@ class Player(Node):
         )
 
         self.publisher = self.create_publisher(Twist, cmd_vel_topic, pub_queue_size)
+
+        # Fixed-rate inference timer. Fires at `inference_rate_hz`; publishes the
+        # policy's action only while game_state == PLAYING. Runs on the same
+        # executor thread as the subscriptions, so latest_state_msg / latest_image
+        # writes are sequenced safely.
+        self.inference_rate_hz = float(self.get_parameter("inference_rate_hz").value)
+        self.inference_timer = self.create_timer(1.0 / self.inference_rate_hz, self._inference_tick)
+        self.get_logger().info(f"Inference timer running at {self.inference_rate_hz:.1f} Hz")
+        if self._action_rate_clip_enabled:
+            self.get_logger().info(
+                f"Action rate clipping enabled (max_delta={self._action_rate_clip_max_delta:.3f} m/s per step)"
+            )
+        if self._action_smoothing_enabled:
+            self.get_logger().info(
+                f"Action smoothing enabled (alpha={self._action_smoothing_alpha:.2f})"
+            )
 
         # Service clients for motor commander
         self.calibration_status_client = self.create_client(GetCalibrationStatus, self.calibration_status_service_name)
@@ -224,16 +270,19 @@ class Player(Node):
             if self.interaction_delay_timer is None:
                 # Reset RSSM state for new episode (no-op for PPO)
                 self.policy.reset_state()
+                # Reset action post-processing so the new episode's first action
+                # is not constrained by / blended with the previous episode's.
+                self._action_rate_clipped = None
+                self._action_smoothed = None
                 self.get_logger().info(f"Starting interaction delay timer ({self.interaction_delay}s)")
                 self.interaction_delay_timer = self.create_timer(
                     self.interaction_delay, self._interaction_delay_complete
                 )
 
         elif self.game_state == GameState.PLAYING:
-            action = np.array([0.0, 0.0])
-
             if not (msg.status.data & BoardState.READY):
                 self.game_state = GameState.UNKNOWN_BOARD_STATE
+                self.publish_action(np.array([0.0, 0.0]))
 
             elif msg.status.data & (
                 BoardState.BALL_IN_LEFT_GOAL
@@ -242,12 +291,12 @@ class Player(Node):
                 | BoardState.PEG_IN_RIGHT_GOAL
             ):
                 self.game_state = GameState.GAME_OVER
+                # GAME_OVER branch on the next callback will publish zero.
             else:
-                # Normal gameplay - compute and publish action
-                image = getattr(self, "latest_image", None)
-                action = self.policy.get_action(msg, image)
-
-            self.publish_action(action)
+                # Normal gameplay — just stash the observation; the 50 Hz
+                # inference timer (_inference_tick) handles computing and
+                # publishing the action at a fixed cadence.
+                self.latest_state_msg = msg
 
         elif self.game_state == GameState.GAME_OVER:
             # stop motors
@@ -443,6 +492,41 @@ class Player(Node):
             self.latest_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as e:
             self.get_logger().error(f"Failed to decompress image: {e}")
+
+    def _inference_tick(self):
+        """Fixed-rate (inference_rate_hz) policy tick.
+
+        Only acts while PLAYING: reads the most recent State message and camera
+        image, runs `policy.get_action`, and publishes. All other game states
+        are handled inside observation_callback as before. Decoupling inference
+        from State-message arrival removes timing jitter that the actuator model
+        (trained at a fixed 50 Hz) is sensitive to.
+        """
+        if self.game_state != GameState.PLAYING:
+            return
+        msg = self.latest_state_msg
+        if msg is None:
+            return
+        action = self.policy.get_action(msg, self.latest_image)
+
+        if self._action_rate_clip_enabled:
+            max_d = self._action_rate_clip_max_delta
+            if self._action_rate_clipped is None:
+                self._action_rate_clipped = np.asarray(action, dtype=np.float32).copy()
+            else:
+                delta = np.clip(action - self._action_rate_clipped, -max_d, max_d)
+                self._action_rate_clipped = self._action_rate_clipped + delta
+            action = self._action_rate_clipped
+
+        if self._action_smoothing_enabled:
+            alpha = self._action_smoothing_alpha
+            if self._action_smoothed is None:
+                self._action_smoothed = np.asarray(action, dtype=np.float32).copy()
+            else:
+                self._action_smoothed = alpha * action + (1.0 - alpha) * self._action_smoothed
+            action = self._action_smoothed
+
+        self.publish_action(action)
 
     def _setup_opponent_overhear(self, own_cmd_vel_topic: str):
         """Subscribe to the opponent's cmd_vel topic and wire the converter.

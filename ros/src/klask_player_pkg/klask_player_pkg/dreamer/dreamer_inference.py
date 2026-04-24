@@ -192,7 +192,6 @@ class DreamerInference:
         self._deter = deter.to(self.device)
         self._prev_action = torch.zeros(1, self.wm_act_dim, dtype=torch.float32, device=self.device)
         self._is_first = True
-        self._debug_step = 0  # per-episode step counter (see _predict debug log)
 
     def set_opponent_estimator(self, estimator):
         """Register a callable that returns a (1, act_dim) tensor in [-1, 1].
@@ -280,17 +279,6 @@ class DreamerInference:
         Returns:
             Dict with "image" tensor and optionally "policy" tensor.
         """
-        # TEMP (remove after diagnosis): frozen-image test.
-        # Cache the first received image and reuse it forever so that every
-        # inference step sees an identical observation. A working actor should
-        # produce a stable (or at most slowly-drifting) action under this
-        # condition; if actions still oscillate wildly, the bug is in the
-        # RSSM/actor pipeline, not in image content or temporal dynamics.
-        if not hasattr(self, "_frozen_image"):
-            self._frozen_image = image.copy()
-            self.logger.warn("[dreamer] FROZEN-IMAGE TEST ACTIVE — first frame cached and reused")
-        image = self._frozen_image
-
         obs = {}
 
         # Process image: BGR → RGB, resize, package as tensor
@@ -363,19 +351,6 @@ class DreamerInference:
                 self._prev_action = torch.cat([action, opp], dim=-1)
             else:
                 self._prev_action = action
-
-            # DEBUG (remove after diagnosis): per-step inference trace
-            self._debug_step = getattr(self, "_debug_step", 0) + 1
-            action_list = action.detach().cpu().numpy().flatten().tolist()
-            prev_list = self._prev_action.detach().cpu().numpy().flatten().tolist()
-            action_str = ", ".join(f"{v:+.3f}" for v in action_list)
-            prev_str = ", ".join(f"{v:+.3f}" for v in prev_list)
-            self.logger.info(
-                f"[dreamer] step={self._debug_step:04d} is_first={int(self._is_first)} "
-                f"action=[{action_str}] prev=[{prev_str}] "
-                f"feat_norm={feat.norm().item():6.2f} stoch_norm={stoch.norm().item():6.2f} "
-                f"deter_norm={deter.norm().item():6.2f}"
-            )
 
             self._is_first = False
 
