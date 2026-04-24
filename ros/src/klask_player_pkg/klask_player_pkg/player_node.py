@@ -2,16 +2,21 @@
 
 import rclpy
 import numpy as np
+import torch
 from pathlib import Path
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from .policy_inference import PolicyInference
+from .ppo.ppo_inference import PolicyInference
 from .game_state import GameState
 from klask_interfaces.msg import State
 from klask_interfaces.srv import GetCalibrationStatus, IsPlayerHomed
 from klask_interfaces.action import HomeAndCalibrate
 from klask_interfaces_py import BoardState
 from geometry_msgs.msg import Twist
+from std_msgs.msg import Empty
+from sensor_msgs.msg import CompressedImage
+from cv_bridge import CvBridge
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
 
 class Player(Node):
@@ -41,8 +46,34 @@ class Player(Node):
         self.declare_parameter("clip_actions", 0.2)
         self.declare_parameter("enable_action_rescaling", True)
 
+        # Agent type selection
+        self.declare_parameter("agent_type", "ppo")
+        self.declare_parameter("image_topic", "board_image/compressed")
+        self.declare_parameter("dreamer_config_filename", "")
+        self.declare_parameter("debug_view", False)
+        self.declare_parameter("opponent_action_mode", "zero")
+        self.declare_parameter("opponent_cmd_vel_topic", "")
+        self.declare_parameter("opponent_cmd_vel_stale_threshold", 0.2)
+        # Inference timer rate (Hz). Decouples inference cadence from State-message arrival
+        # so the actuator model (trained at a fixed 50 Hz) sees regular-interval commands.
+        self.declare_parameter("inference_rate_hz", 50.0)
+        # Optional rate-of-change clip on the policy's action (applied BEFORE EMA).
+        # Bounds |action_t - action_{t-1}| per axis to at most max_delta (m/s per step).
+        # At inference_rate_hz, this caps acceleration at max_delta * inference_rate_hz (m/s^2).
+        self.declare_parameter("action_rate_clip_enabled", False)
+        self.declare_parameter("action_rate_clip_max_delta", 0.1)
+        # Optional EMA smoothing on the policy's action before publish.
+        #   smoothed = alpha * new + (1 - alpha) * smoothed_prev
+        # alpha=1.0 → no smoothing; 0.8 → very slight; 0.5 → medium.
+        self.declare_parameter("action_smoothing_enabled", False)
+        self.declare_parameter("action_smoothing_alpha", 0.8)
+
         # State machine parameters
         self.declare_parameter("interaction_delay", 2.0)
+
+        # Heartbeat watchdog parameters
+        self.declare_parameter("heartbeat_topic", "heartbeat")
+        self.declare_parameter("heartbeat_timeout", 1.5)
 
         # Motor commander service parameters (these are global, not per-player)
         self.declare_parameter("get_calibration_status_service_name", "/get_calibration_status")
@@ -81,19 +112,79 @@ class Player(Node):
         self.interaction_delay_timer = None
         self.magnet_recover_timer = None
 
-        # Initialize policy inference class
-        self.policy = PolicyInference(
-            weights_filename=self.get_parameter("weights_filename").value,
-            weights_zip_url=self.get_parameter("weights_zip_url").value,
-            nn_weights_dir=Path(__file__).resolve().parent.parent.parent.parent / "nn_weights",
-            device=self.get_parameter("device").value,
-            clip_actions=self.get_parameter("clip_actions").value,
-            enable_action_rescaling=self.get_parameter("enable_action_rescaling").value,
-            player_side=self.player_side,
-            board_dim_width=self.get_parameter("board_width").value,
-            board_dim_height=self.get_parameter("board_height").value,
-            logger=self.get_logger(),
+        # Latest received State message / camera image. The subscription
+        # callbacks just store here; the fixed-rate inference timer reads them.
+        # Separating write and read gives the actuator model the jitter-free
+        # cadence it was trained on. `latest_image` stays None under PPO since
+        # PPO doesn't subscribe to the camera topic.
+        self.latest_state_msg = None
+        self.latest_image = None
+
+        # Action post-processing state. Order per tick: raw action → rate clip → EMA → publish.
+        # Both stages are reset when a new episode begins (INTERACTION_DELAY entry).
+        self._action_rate_clip_enabled = bool(self.get_parameter("action_rate_clip_enabled").value)
+        self._action_rate_clip_max_delta = float(self.get_parameter("action_rate_clip_max_delta").value)
+        self._action_rate_clipped = None
+        self._action_smoothing_enabled = bool(self.get_parameter("action_smoothing_enabled").value)
+        self._action_smoothing_alpha = float(self.get_parameter("action_smoothing_alpha").value)
+        self._action_smoothed = None
+
+        # Heartbeat watchdog
+        self.heartbeat_timeout = self.get_parameter("heartbeat_timeout").value
+        heartbeat_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.heartbeat_sub = self.create_subscription(
+            Empty,
+            self.get_parameter("heartbeat_topic").value,
+            self._heartbeat_callback,
+            heartbeat_qos,
         )
+        self.heartbeat_received = False
+        self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
+
+        # Initialize policy inference class based on agent type
+        self.agent_type = self.get_parameter("agent_type").value
+        nn_weights_dir = Path(__file__).resolve().parent.parent.parent.parent / "nn_weights"
+
+        if self.agent_type == "dreamer":
+            from .dreamer.dreamer_inference import DreamerInference
+
+            self.policy = DreamerInference(
+                weights_filename=self.get_parameter("weights_filename").value,
+                weights_zip_url=self.get_parameter("weights_zip_url").value,
+                nn_weights_dir=nn_weights_dir,
+                device=self.get_parameter("device").value,
+                player_side=self.player_side,
+                board_dim_width=self.get_parameter("board_width").value,
+                board_dim_height=self.get_parameter("board_height").value,
+                config_filename=self.get_parameter("dreamer_config_filename").value,
+                debug_view=self.get_parameter("debug_view").value,
+                opponent_action_mode=self.get_parameter("opponent_action_mode").value,
+                logger=self.get_logger(),
+            )
+
+            # Subscribe to camera images (same method as state estimator).
+            # self.latest_image is initialized above to None for both agent types.
+            image_topic = self.get_parameter("image_topic").value
+            self.bridge = CvBridge()
+            self.image_subscription = self.create_subscription(CompressedImage, image_topic, self._image_callback, 10)
+            self.get_logger().info(f"Subscribed to camera: {image_topic}")
+
+            # Set up opponent cmd_vel overhear if requested
+            if self.get_parameter("opponent_action_mode").value == "overhear":
+                self._setup_opponent_overhear(cmd_vel_topic)
+        else:
+            self.policy = PolicyInference(
+                weights_filename=self.get_parameter("weights_filename").value,
+                weights_zip_url=self.get_parameter("weights_zip_url").value,
+                nn_weights_dir=nn_weights_dir,
+                device=self.get_parameter("device").value,
+                clip_actions=self.get_parameter("clip_actions").value,
+                enable_action_rescaling=self.get_parameter("enable_action_rescaling").value,
+                player_side=self.player_side,
+                board_dim_width=self.get_parameter("board_width").value,
+                board_dim_height=self.get_parameter("board_height").value,
+                logger=self.get_logger(),
+            )
 
         # ROS2 setup
         self.subscription = self.create_subscription(
@@ -105,11 +196,28 @@ class Player(Node):
 
         self.publisher = self.create_publisher(Twist, cmd_vel_topic, pub_queue_size)
 
+        # Fixed-rate inference timer. Fires at `inference_rate_hz`; publishes the
+        # policy's action only while game_state == PLAYING. Runs on the same
+        # executor thread as the subscriptions, so latest_state_msg / latest_image
+        # writes are sequenced safely.
+        self.inference_rate_hz = float(self.get_parameter("inference_rate_hz").value)
+        self.inference_timer = self.create_timer(1.0 / self.inference_rate_hz, self._inference_tick)
+        self.get_logger().info(f"Inference timer running at {self.inference_rate_hz:.1f} Hz")
+        if self._action_rate_clip_enabled:
+            self.get_logger().info(
+                f"Action rate clipping enabled (max_delta={self._action_rate_clip_max_delta:.3f} m/s per step)"
+            )
+        if self._action_smoothing_enabled:
+            self.get_logger().info(
+                f"Action smoothing enabled (alpha={self._action_smoothing_alpha:.2f})"
+            )
+
         # Service clients for motor commander
         self.calibration_status_client = self.create_client(GetCalibrationStatus, self.calibration_status_service_name)
         self.homed_client = self.create_client(IsPlayerHomed, self.is_player_homed_service_name)
         self.home_calibrate_client = ActionClient(self, HomeAndCalibrate, self.home_and_calibrate_action_name)
 
+        self.get_logger().info(f"Agent type: {self.agent_type}")
         self.get_logger().info(f"Player side: {self.player_side}")
         self.get_logger().info(f"Subscribed to: {state_topic}")
         self.get_logger().info(f"Publishing to: {cmd_vel_topic}")
@@ -160,16 +268,21 @@ class Player(Node):
         elif self.game_state == GameState.INTERACTION_DELAY:
             # Wait for interaction delay to pass
             if self.interaction_delay_timer is None:
+                # Reset RSSM state for new episode (no-op for PPO)
+                self.policy.reset_state()
+                # Reset action post-processing so the new episode's first action
+                # is not constrained by / blended with the previous episode's.
+                self._action_rate_clipped = None
+                self._action_smoothed = None
                 self.get_logger().info(f"Starting interaction delay timer ({self.interaction_delay}s)")
                 self.interaction_delay_timer = self.create_timer(
                     self.interaction_delay, self._interaction_delay_complete
                 )
 
         elif self.game_state == GameState.PLAYING:
-            action = np.array([0.0, 0.0])
-
             if not (msg.status.data & BoardState.READY):
                 self.game_state = GameState.UNKNOWN_BOARD_STATE
+                self.publish_action(np.array([0.0, 0.0]))
 
             elif msg.status.data & (
                 BoardState.BALL_IN_LEFT_GOAL
@@ -178,11 +291,12 @@ class Player(Node):
                 | BoardState.PEG_IN_RIGHT_GOAL
             ):
                 self.game_state = GameState.GAME_OVER
+                # GAME_OVER branch on the next callback will publish zero.
             else:
-                # Normal gameplay - compute and publish action
-                action = self.policy.get_action(msg)
-
-            self.publish_action(action)
+                # Normal gameplay — just stash the observation; the 50 Hz
+                # inference timer (_inference_tick) handles computing and
+                # publishing the action at a fixed cadence.
+                self.latest_state_msg = msg
 
         elif self.game_state == GameState.GAME_OVER:
             # stop motors
@@ -202,7 +316,7 @@ class Player(Node):
             # Move magnet towards center
             recovery_time = 1.0  # seconds
             recovery_speed = 0.01  # m/s
-            self.publish_action(np.array([0.0, recovery_speed * self.center_direction]))
+            self.publish_action(np.array([recovery_speed * self.center_direction, 0.0]))
 
             if self.magnet_recover_timer is None:
                 self.get_logger().info(f"Starting moving the magnet away from goal for {recovery_time}s")
@@ -221,10 +335,16 @@ class Player(Node):
         self.last_game_state = self.game_state
 
     def publish_action(self, action):
-        """Publish action as velocity command."""
+        """Publish action as velocity command.
+
+        Args:
+            action: np.array of shape (2,) representing [x_velocity, y_velocity] in image frame
+        
+        Publishes Twist message in image frame
+        """
         msg = Twist()
-        msg.linear.x = float(action[1])
-        msg.linear.y = float(action[0])
+        msg.linear.x = float(action[0])
+        msg.linear.y = float(action[1])
         self.publisher.publish(msg)
 
     def _check_calibration_status(self):
@@ -333,6 +453,171 @@ class Player(Node):
 
         self.homing_goal_handle = None
         self.game_state = GameState.STATE_ESTIMATOR_READY
+
+    def _heartbeat_callback(self, msg):
+        """Reset watchdog on heartbeat received."""
+        self.heartbeat_received = True
+        self.heartbeat_watchdog.cancel()
+        self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
+
+    def _heartbeat_lost_callback(self):
+        """Handle motor commander heartbeat loss."""
+        self.heartbeat_watchdog.cancel()
+
+        if not self.heartbeat_received:
+            self.get_logger().warn("No heartbeat received from motor commander yet.")
+            self.heartbeat_watchdog = self.create_timer(self.heartbeat_timeout, self._heartbeat_lost_callback)
+            return
+
+        self.get_logger().error("Motor commander heartbeat lost! Resetting to INITIALIZING.")
+
+        # Stop motors immediately
+        self.publish_action(np.array([0.0, 0.0]))
+
+        # Clean up any in-progress timers/actions
+        if self.interaction_delay_timer is not None:
+            self.interaction_delay_timer.cancel()
+            self.interaction_delay_timer = None
+        if self.magnet_recover_timer is not None:
+            self.magnet_recover_timer.cancel()
+            self.magnet_recover_timer = None
+        self.homing_goal_handle = None
+
+        # Reset state machine
+        self.game_state = GameState.INITIALIZING
+
+    def _image_callback(self, msg: CompressedImage):
+        """Callback for receiving compressed camera images (Dreamer agent)."""
+        try:
+            self.latest_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as e:
+            self.get_logger().error(f"Failed to decompress image: {e}")
+
+    def _inference_tick(self):
+        """Fixed-rate (inference_rate_hz) policy tick.
+
+        Only acts while PLAYING: reads the most recent State message and camera
+        image, runs `policy.get_action`, and publishes. All other game states
+        are handled inside observation_callback as before. Decoupling inference
+        from State-message arrival removes timing jitter that the actuator model
+        (trained at a fixed 50 Hz) is sensitive to.
+        """
+        if self.game_state != GameState.PLAYING:
+            return
+        msg = self.latest_state_msg
+        if msg is None:
+            return
+        action = self.policy.get_action(msg, self.latest_image)
+
+        if self._action_rate_clip_enabled:
+            max_d = self._action_rate_clip_max_delta
+            if self._action_rate_clipped is None:
+                self._action_rate_clipped = np.asarray(action, dtype=np.float32).copy()
+            else:
+                delta = np.clip(action - self._action_rate_clipped, -max_d, max_d)
+                self._action_rate_clipped = self._action_rate_clipped + delta
+            action = self._action_rate_clipped
+
+        if self._action_smoothing_enabled:
+            alpha = self._action_smoothing_alpha
+            if self._action_smoothed is None:
+                self._action_smoothed = np.asarray(action, dtype=np.float32).copy()
+            else:
+                self._action_smoothed = alpha * action + (1.0 - alpha) * self._action_smoothed
+            action = self._action_smoothed
+
+        self.publish_action(action)
+
+    def _setup_opponent_overhear(self, own_cmd_vel_topic: str):
+        """Subscribe to the opponent's cmd_vel topic and wire the converter.
+
+        Auto-derives the topic by token-swapping 'left_player' <-> 'right_player'
+        in our own cmd_vel_topic when the user leaves opponent_cmd_vel_topic empty.
+        """
+        self._latest_opponent_twist = None
+        self._latest_opponent_stamp = None
+        self._last_stale_warn_stamp = None
+
+        self._opponent_stale_threshold = float(
+            self.get_parameter("opponent_cmd_vel_stale_threshold").value
+        )
+
+        topic = self.get_parameter("opponent_cmd_vel_topic").value
+        if not topic:
+            # Token-swap on our own cmd_vel topic
+            if "left_player" in own_cmd_vel_topic:
+                topic = own_cmd_vel_topic.replace("left_player", "right_player")
+            elif "right_player" in own_cmd_vel_topic:
+                topic = own_cmd_vel_topic.replace("right_player", "left_player")
+            else:
+                raise RuntimeError(
+                    f"opponent_action_mode='overhear' with empty opponent_cmd_vel_topic, "
+                    f"but cmd_vel_topic='{own_cmd_vel_topic}' does not contain "
+                    f"'left_player' or 'right_player' for token-swap. Set "
+                    f"opponent_cmd_vel_topic explicitly."
+                )
+
+        qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+        self.opponent_cmd_vel_subscription = self.create_subscription(
+            Twist, topic, self._opponent_cmd_vel_callback, qos
+        )
+        self.policy.set_opponent_action_source(self._overhear_opponent_action)
+        self.get_logger().info(
+            f"Overhear enabled — subscribed to opponent cmd_vel: {topic} "
+            f"(stale threshold: {self._opponent_stale_threshold}s)"
+        )
+
+    def _opponent_cmd_vel_callback(self, msg: Twist):
+        """Store the latest opponent Twist with its arrival timestamp."""
+        self._latest_opponent_twist = msg
+        self._latest_opponent_stamp = self.get_clock().now()
+
+    def _overhear_opponent_action(self) -> torch.Tensor:
+        """Convert the latest opponent Twist into a (1, 2) WM-input tensor.
+
+        Mirrors the image->ego mapping in map_state_observations: a pure
+        [msg.y, msg.x] index swap (no axis sign flip), followed by a full-vector
+        negation iff the opponent is the right player (i.e. we're left).
+        """
+        device = self.policy.device
+        zeros = torch.zeros(1, 2, dtype=torch.float32, device=device)
+
+        stamp = self._latest_opponent_stamp
+        if stamp is None:
+            self._warn_stale("no opponent cmd_vel received yet")
+            return zeros
+        age = (self.get_clock().now() - stamp).nanoseconds * 1e-9
+        if age > self._opponent_stale_threshold:
+            self._warn_stale(f"opponent cmd_vel stale ({age:.2f}s > {self._opponent_stale_threshold}s)")
+            return zeros
+
+        twist = self._latest_opponent_twist
+        max_v = self.policy.max_velocity
+
+        # Step 1: image -> left-player ego (pure [msg.y, msg.x] index swap)
+        opp_ego = np.array(
+            [twist.linear.y / max_v, twist.linear.x / max_v],
+            dtype=np.float32,
+        )
+
+        # Step 2: left-ego -> opponent's ego
+        # Opponent LEFT  (I'm right) -> no change
+        # Opponent RIGHT (I'm left)  -> negate (180 deg flip)
+        if self.player_side == "left":
+            opp_ego = -opp_ego
+
+        # Step 3: pack as (1, 2) tensor on the model's device; defensive clamp
+        return torch.tensor([opp_ego], dtype=torch.float32, device=device).clamp(-1.0, 1.0)
+
+    def _warn_stale(self, reason: str):
+        """Throttled warning when overhear data is unavailable/stale (at most every 1s)."""
+        now = self.get_clock().now()
+        if (
+            self._last_stale_warn_stamp is None
+            or (now - self._last_stale_warn_stamp).nanoseconds * 1e-9 > 1.0
+        ):
+            self.get_logger().warn(f"overhear: {reason} — falling back to zeros")
+            self._last_stale_warn_stamp = now
 
     def _magnet_recover_complete(self):
         """Handle magnet recovery completion."""

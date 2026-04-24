@@ -45,8 +45,8 @@ class StateEstimatorNode(Node):
         self.current_image_width: float = 0.0
         self.current_image_height: float = 0.0
 
-        # Radius around goal center to count as "in goal" (pixels) (default: 22)
-        self.declare_parameter("goal_radius", 22)
+        # Radius around goal center to count as "in goal" (pixels) (default: 25)
+        self.declare_parameter("goal_radius", 25)
         self.goal_radius = int(self.get_parameter("goal_radius").value)
 
         # Frames required before confirming goal (default: 30)
@@ -81,8 +81,8 @@ class StateEstimatorNode(Node):
         self.declare_parameter("canvas_height", 720)
         self.canvas_height = int(self.get_parameter("canvas_height").value)
 
-        # State publishing frequency in Hz (default: 80.0)
-        self.declare_parameter("publish_frequency", 80.0)
+        # State publishing frequency in Hz (default: 50.0)
+        self.declare_parameter("publish_frequency", 50.0)
         self.publish_frequency = float(self.get_parameter("publish_frequency").value)
 
         # Seconds between display updates (default: 0.1)

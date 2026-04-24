@@ -1,9 +1,9 @@
 /**:
   ros__parameters:
     # Model configuration
-    weights_filename: "klask_ac_nn_v0.0.pth" # Name of the model file to load from nn_weights folder
+    weights_filename: "wbxmc1nm_2.7M_inference.pt" # Name of the model file to load from nn_weights folder
     weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
-    device: "cpu" # Options: "cpu", "cuda"
+    device: "cuda" # Options: "cpu", "cuda"
 
     # Board configuration
     board_width: 0.42 # meters
@@ -12,8 +12,29 @@
     # Player configuration
     player_side: "left" # Options: "left", "right" - will be overridden by launch file
 
-    # Action rescaling configuration
-    clip_actions: 0.2 # Action clipping bound
+    # Agent type selection
+    agent_type: "dreamer" # Options: "ppo", "dreamer"
+    dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
+    debug_view: false # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
+    opponent_action_mode: "zero" # Opponent action source for separated-opponent Dreamer (Dreamer only): "zero" | "random" | "estimator" | "overhear". Ignored when checkpoint was not trained with opponent_separation.
+    opponent_cmd_vel_topic: "" # Topic to overhear when opponent_action_mode="overhear". Empty = auto-derive by swapping "left_player" <-> "right_player" in cmd_vel_topic.
+    opponent_cmd_vel_stale_threshold: 0.2 # Seconds; opponent cmd_vel older than this is treated as missing (zeros fallback).
+    inference_rate_hz: 50.0 # Fixed-rate timer for policy inference; matches training (sim_dt=0.001, decimation=20). Decouples inference cadence from State-message jitter.
+
+    # Optional rate-of-change clip on the action (applied BEFORE EMA smoothing).
+    # Caps |action_t - action_{t-1}| per axis to max_delta (m/s per inference step).
+    # At inference_rate_hz this bounds acceleration to max_delta * inference_rate_hz (m/s^2).
+    action_rate_clip_enabled: true
+    action_rate_clip_max_delta: 0.2
+
+    # Optional EMA smoothing applied to the published action:
+    #   smoothed = alpha * new + (1 - alpha) * smoothed_prev
+    # alpha=1.0 -> no smoothing; 0.8 -> very slight; 0.5 -> medium. Resets on every new episode.
+    action_smoothing_enabled: false
+    action_smoothing_alpha: 0.8
+
+    # Action rescaling configuration (PPO only)
+    clip_actions: 0.4 # Action clipping bound
     enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
 
     # State machine configuration
@@ -29,8 +50,13 @@
 
     # ROS topic configuration
     state_topic: "/board_state"
-    cmd_vel_topic: "cmd_vel/left_player" # Will be overridden by launch file
+    image_topic: "/board_image/downscaled/compressed" # Camera topic for Dreamer agent
+    cmd_vel_topic: "/cmd_vel/left_player" # Will be overridden by launch file
 
     # QoS settings
     subscription_queue_size: 1
     publisher_queue_size: 1
+
+    # Motor Commander watchdog configuration
+    heartbeat_topic: "/motor_commander/heartbeat" # Topic to monitor for motor commander heartbeat
+    heartbeat_timeout: 1.5 # Timeout in seconds to consider motor commander unresponsive

@@ -1,0 +1,27 @@
+/**:
+  ros__parameters:
+    # Benchmark configuration
+    num_steps: 10000 # Number of inference steps to measure (after warmup)
+    warmup_steps: 1000 # Number of warmup steps to skip before measuring
+
+    # Model configuration
+    weights_filename: "2v05yqxz_128_3.5M.pt" # Name of the model file to load from nn_weights folder
+    weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
+    device: "cuda" # Options: "cpu", "cuda"
+
+    # Board configuration
+    board_width: 0.42 # meters
+    board_height: 0.32 # meters
+
+    # Player configuration
+    player_side: "left" # Options: "left", "right"
+
+    # Agent type selection
+    agent_type: "dreamer" # Options: "ppo", "dreamer"
+    dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
+    debug_view: false # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
+    opponent_action_mode: "zero" # Opponent action source for separated-opponent Dreamer (Dreamer only): "zero" | "random" | "estimator". Ignored when checkpoint was not trained with opponent_separation.
+
+    # Action rescaling configuration (PPO only)
+    clip_actions: 0.4 # Action clipping bound
+    enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
