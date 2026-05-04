@@ -1,18 +1,6 @@
 {
     "configurations": [
         {
-            "name": "Debug state_estimator_node (ROS2)",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "klask_state_estimator_pkg.state_estimator_node",
-            "args": [
-                "--ros-args",
-                "--params-file",
-                "${workspaceFolder}/src/klask_state_estimator_pkg/config/state_estimator_params.yaml"
-            ],
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Debug player_node (ROS2)",
             "type": "debugpy",
             "request": "launch",
