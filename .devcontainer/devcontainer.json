@@ -70,7 +70,6 @@
                 "python.analysis.extraPaths": [
                     "/opt/ros/klask_ws/install/klask_interfaces/local/lib/python3.10/dist-packages",
                     "/opt/ros/klask_ws/install/klask_player_pkg/local/lib/python3.10/dist-packages",
-                    "/opt/ros/klask_ws/install/klask_state_estimator_pkg/local/lib/python3.10/dist-packages",
                     "/opt/ros/humble/lib/python3.10/site-packages",
                     "/opt/ros/humble/local/lib/python3.10/dist-packages"
                 ],

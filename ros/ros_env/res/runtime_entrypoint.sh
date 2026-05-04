@@ -28,7 +28,7 @@ done
 source /ros_entrypoint.sh
 
 # Build launch command with parameters
-LAUNCH_CMD="ros2 launch klask_player_pkg game_launch.py player:=\"$PLAYER\""
+LAUNCH_CMD="ros2 launch klask_player_pkg player_launch.py player:=\"$PLAYER\""
 if [[ -n "$WEIGHTS_FILENAME" ]]; then
     LAUNCH_CMD="$LAUNCH_CMD weights_filename:=\"$WEIGHTS_FILENAME\""
 fi

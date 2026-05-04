@@ -52,7 +52,7 @@ RUN --mount=type=ssh \
 # Ignore packages that are not needed / cause trouble in the SDK 
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_imaging_pkg/COLCON_IGNORE || true
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_motor_commander_pkg/COLCON_IGNORE || true
-RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_state_estimation_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_state_estimator_pkg/COLCON_IGNORE || true
 
 
 # auto source ROS setup.bash

@@ -32,6 +32,7 @@ RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
 # Ignore packages that are not needed / cause trouble in the CI 
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_imaging_pkg/COLCON_IGNORE || true
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_motor_commander_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_state_estimator_pkg/COLCON_IGNORE || true
 
 # auto source ROS setup.bash
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc

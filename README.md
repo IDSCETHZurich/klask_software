@@ -64,7 +64,7 @@ flowchart LR
 
 ## System Architecture
 
-This repository consists of two main ROS2 packages:
+This repository contains the gameplay-side ROS2 package; the state estimator and the rest of the runtime nodes live in the `klask_hardware` repo.
 
 ### klask_player_pkg (Python)
 
@@ -73,16 +73,6 @@ Network policy inference for autonomous gameplay:
 - Neural network policy that loads the trained model weights from Polybox
 - Game state management to play repeated matches
 - Configurable player behavior parameters
-
-### klask_state_estimator_pkg (Python)
-
-Real-time state estimation from visual inputs:
-
-- Kalman filtering for robust state tracking
-- Ball and player position estimation
-- Velocity and acceleration computation
-- State prediction and sensor fusion
-- Debug visualization tools
 
 ## Getting Started
 
