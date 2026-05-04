@@ -17,7 +17,7 @@ from klask_player_pkg.utils import (
 
 from .dreamer_config import DreamerModelConfig
 from .dreamer_network import MultiEncoder, RSSM, MLPHead
-from .debug import show_image_tensor
+from klask_player_pkg.debug import show_image_tensor, show_state_observation
 from klask_interfaces.msg import State
 
 
@@ -308,6 +308,15 @@ class DreamerInference:
             obs_full = add_additional_state_features(obs_base)
             policy_tensor = torch.from_numpy(obs_full).unsqueeze(0).to(dtype=torch.float32, device=self.device)
             obs["policy"] = policy_tensor
+
+            if self.debug_view:
+                show_state_observation(
+                    obs_base,
+                    obs_full,
+                    self.board_dim_width,
+                    self.board_dim_height,
+                    window_name=f"dreamer_state_{self.player_side}",
+                )
 
         return obs
 
