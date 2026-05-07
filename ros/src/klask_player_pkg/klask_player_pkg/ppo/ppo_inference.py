@@ -11,6 +11,7 @@ from klask_player_pkg.utils import (
     add_additional_state_features,
     ensure_weights_available,
 )
+from klask_player_pkg.debug import show_state_observation
 
 
 class PolicyInference:
@@ -27,6 +28,7 @@ class PolicyInference:
         player_side: str = "left",
         board_dim_width: float = 0.42,
         board_dim_height: float = 0.32,
+        debug_view: bool = False,
         logger: Optional[Any] = None,
     ):
         """Initialize policy inference.
@@ -41,6 +43,7 @@ class PolicyInference:
             player_side: 'left' or 'right' player side
             board_dim_width: Board width in meters
             board_dim_height: Board height in meters
+            debug_view: If True, render the ego-frame state in an OpenCV window each step.
             logger: Optional logger object with info(), warn(), error() methods
         """
         self.logger = logger
@@ -48,6 +51,7 @@ class PolicyInference:
         self.player_side = player_side
         self.board_dim_width = board_dim_width
         self.board_dim_height = board_dim_height
+        self.debug_view = debug_view
 
         # Ensure weights are available
         checkpoint_path = ensure_weights_available(weights_filename, weights_zip_url, nn_weights_dir, self.logger)
@@ -134,6 +138,15 @@ class PolicyInference:
 
         # Compute additional features
         obs_full = add_additional_state_features(obs_base)
+
+        if self.debug_view:
+            show_state_observation(
+                obs_base,
+                obs_full,
+                self.board_dim_width,
+                self.board_dim_height,
+                window_name=f"ppo_state_{self.player_side}",
+            )
 
         # Get action from policy
         action = self._predict(obs_full)

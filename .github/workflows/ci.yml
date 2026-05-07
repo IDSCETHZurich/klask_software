@@ -31,7 +31,7 @@ jobs:
         run: |
           . /opt/ros/${ROS_DISTRO}/setup.sh
           . install/setup.sh
-          colcon test --packages-select klask_player_pkg klask_state_estimator_pkg # only test our packages
+          colcon test --packages-select klask_player_pkg # only test our packages
 
       - name: Test results
         if: always()

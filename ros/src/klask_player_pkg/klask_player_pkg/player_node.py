@@ -183,6 +183,7 @@ class Player(Node):
                 player_side=self.player_side,
                 board_dim_width=self.get_parameter("board_width").value,
                 board_dim_height=self.get_parameter("board_height").value,
+                debug_view=self.get_parameter("debug_view").value,
                 logger=self.get_logger(),
             )
 

@@ -39,6 +39,9 @@ COPY src $OVERLAY_WS/src
 # Ignore packages not needed for runtime
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_imaging_pkg/COLCON_IGNORE || true
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_motor_commander_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_sprite_generator_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_state_estimator_pkg/COLCON_IGNORE || true
+RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_system_id_pkg/COLCON_IGNORE || true
 
 # Derive build and exec dependencies
 RUN bash -e <<'EOF'

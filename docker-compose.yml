@@ -18,9 +18,9 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     devices:
       - /dev/video0:/dev/video0
-    # To pass launch arguments like --player left|right|both, --viewer, --no-viewer:
-    # command: ["--player", "both", "--viewer"]
-    # Or override via: docker compose run hardware --player left --no-viewer
+    # To pass launch arguments like --player left|right|both, --viewer/--no-viewer, --estimator/--no-estimator:
+    # command: ["--player", "both", "--viewer", "--estimator"]
+    # Or override via: docker compose run hardware --player left --no-viewer --no-estimator
 
   software_runtime:
     image: ghcr.io/idscethzurich/klask_software/runtime:latest

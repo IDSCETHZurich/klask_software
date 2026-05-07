@@ -2,7 +2,7 @@ repositories:
   klask_hardware:
     type: git
     url: git@github.com-MeierTobias:IDSCETHZurich/klask_hardware.git
-    version: 545c7a2f0ace6b9f4399b4f609d7173c50a44cfe
+    version: 47a9b95b1ddf213cff4dc62a0a4cdace9d4101b9
   vision_opencv:
     type: git
     url: https://github.com/ros-perception/vision_opencv.git

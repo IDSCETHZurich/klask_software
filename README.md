@@ -30,41 +30,11 @@ KLASK is a popular magnetic table game where players control magnetic pegs to hi
 
 This repository contains the **software intelligence** of the KLASK robotic system: state estimation and policy inference nodes that enable autonomous gameplay. The hardware interface and low-level control are hosted in the separate [klask_hardware](https://github.com/IDSCETHZurich/klask_hardware) repository.
 
-```mermaid
-flowchart LR
-  subgraph HW["**klask_hardware Repo**"]
-    direction TB
-    HW_HARD["**Hardware**<br/>- CAD files<br/>- Assembly instructions"]
-
-    subgraph HW_CONT["Container"]
-      direction TB
-      HW_SW["**ROS Stack**<br/>- Motor Driver Node<br/>- Camera Node"]
-    end
-
-    HW_HARD --- HW_SW
-  end
-
-  subgraph SW["**klask_software Repo (This Repo)**"]
-    direction TB
-
-    subgraph SW_CONT["Container"]
-      direction TB
-      SE["**State Estimator**"]
-      PLAYER["**Policy Inference Node**"]
-      SE -- State --> PLAYER
-    end
-  end
-
-  HW_SW -- Image --> SE
-  PLAYER -- Action --> HW_SW
-
-  PB[("**Polybox**")]
-  PLAYER -. Weights .- PB
-```
+<img src="docs/res/diagrams/repo_overview.png" alt="KLASK Repo Overview" width="500"/>
 
 ## System Architecture
 
-This repository consists of two main ROS2 packages:
+This repository contains the gameplay-side ROS2 package; the state estimator and the rest of the runtime nodes live in the `klask_hardware` repo.
 
 ### klask_player_pkg (Python)
 
@@ -73,16 +43,6 @@ Network policy inference for autonomous gameplay:
 - Neural network policy that loads the trained model weights from Polybox
 - Game state management to play repeated matches
 - Configurable player behavior parameters
-
-### klask_state_estimator_pkg (Python)
-
-Real-time state estimation from visual inputs:
-
-- Kalman filtering for robust state tracking
-- Ball and player position estimation
-- Velocity and acceleration computation
-- State prediction and sensor fusion
-- Debug visualization tools
 
 ## Getting Started
 
@@ -178,14 +138,16 @@ This project is mostly maintained by:
 
 If you use this work in an academic context, please cite the following publication:
 
-- Authors, **"Title"**, 2023. ([PDF](link_to_pdf))
+- Aswin Karthik Ramachandran Venkatapathy, Jona Schulz, Maurus Derungs, Carlo Angelini, Tobias Meier, Raffaello D’Andrea, **"KlaskTron: An Open-Source Platform for Physical Adversarial Multi-Agent RL"**, 2026. ([PDF](https://openreview.net/pdf?id=UaLgID9r1i))
 
     ```bibtex
-    @article{,
-      title={},
-      author={},
-      journal={},
-      year={2026}
+    @inproceedings{
+      anonymous2026klasktron,
+      title={KlaskTron: An Open-Source Platform for Physical Adversarial Multi-Agent {RL}},
+      author={Anonymous},
+      booktitle={Robotics: Science and Systems 2026},
+      year={2026},
+      url={https://openreview.net/forum?id=UaLgID9r1i}
     }
     ```
 

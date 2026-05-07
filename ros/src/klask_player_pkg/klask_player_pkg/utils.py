@@ -10,7 +10,7 @@ from klask_interfaces.msg import State
 
 def map_state_observations(msg: State, player_side: str, board_dim_width: float, board_dim_height: float) -> np.ndarray:
     """Extract observations from State message, center coordinates, and transform for player side.
-    
+
     It transforms form image frame (center top-left, y-down) to ego-centric frame (center-origin, y-forward) and maps player/opponent based on player_side.
 
     Returns:
@@ -93,7 +93,8 @@ def add_additional_state_features(obs: np.ndarray) -> np.ndarray:
     vec_opp_to_goal = goal_player_pos - opponent_pos
     vec_ball_to_opp = ball_pos - opponent_pos
     vec_opp_to_player = opponent_pos - player_pos
-    vec_ball_to_goal = goal_player_pos - ball_pos
+    # vec_ball_to_goal = goal_player_pos - ball_pos # TODO: fix this bug in training
+    vec_ball_to_goal = goal_player_pos - player_pos  # Match the original bug!
     vec_ball_to_opp_goal = goal_opponent_pos - ball_pos
 
     # Compute angles

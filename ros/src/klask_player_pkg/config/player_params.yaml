@@ -1,9 +1,9 @@
 /**:
   ros__parameters:
     # Model configuration
-    weights_filename: "wbxmc1nm_2.7M_inference.pt" # Name of the model file to load from nn_weights folder
+    weights_filename: "klask_ppo_nn_v0.0.pth" # Name of the model file to load from nn_weights folder
     weights_zip_url: "https://polybox.ethz.ch/index.php/s/joEoP8GgQbwmToW/download" # URL to download weights zip
-    device: "cuda" # Options: "cpu", "cuda"
+    device: "cpu" # Options: "cpu", "cuda"
 
     # Board configuration
     board_width: 0.42 # meters
@@ -13,9 +13,9 @@
     player_side: "left" # Options: "left", "right" - will be overridden by launch file
 
     # Agent type selection
-    agent_type: "dreamer" # Options: "ppo", "dreamer"
+    agent_type: "ppo" # Options: "ppo", "dreamer"
     dreamer_config_filename: "" # Config JSON filename in nn_weights folder (empty = <checkpoint_stem>_config.json)
-    debug_view: false # If true, show the rotated ego-view image in an OpenCV window (Dreamer only)
+    debug_view: false # If true, show debug visualization in OpenCV window(s): ego-frame state for PPO; ego-view image for Dreamer (plus ego-frame state when obs_mode is image_and_state).
     opponent_action_mode: "zero" # Opponent action source for separated-opponent Dreamer (Dreamer only): "zero" | "random" | "estimator" | "overhear". Ignored when checkpoint was not trained with opponent_separation.
     opponent_cmd_vel_topic: "" # Topic to overhear when opponent_action_mode="overhear". Empty = auto-derive by swapping "left_player" <-> "right_player" in cmd_vel_topic.
     opponent_cmd_vel_stale_threshold: 0.2 # Seconds; opponent cmd_vel older than this is treated as missing (zeros fallback).
