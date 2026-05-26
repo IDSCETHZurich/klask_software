@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 ARG FROM_IMAGE=ros:humble
 ARG OVERLAY_WS=/opt/ros/klask_ws
 

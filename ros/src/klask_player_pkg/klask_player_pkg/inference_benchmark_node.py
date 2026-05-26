@@ -47,7 +47,7 @@ class InferenceBenchmark(Node):
         self.board_height = self.get_parameter("board_height").value
         self.agent_type = self.get_parameter("agent_type").value
 
-        nn_weights_dir = Path(__file__).resolve().parent.parent.parent.parent / "nn_weights"
+        nn_weights_dir = Path("/opt/ros/klask_ws/nn_weights")
 
         # Initialize policy inference based on agent type
         if self.agent_type == "dreamer":

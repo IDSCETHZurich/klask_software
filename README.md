@@ -142,9 +142,9 @@ If you use this work in an academic context, please cite the following publicati
 
     ```bibtex
     @inproceedings{
-      anonymous2026klasktron,
+      aswin2026klasktron,
       title={KlaskTron: An Open-Source Platform for Physical Adversarial Multi-Agent {RL}},
-      author={Anonymous},
+      author={Aswin Karthik Ramachandran Venkatapathy, Jona Schulz, Maurus Derungs, Carlo Angelini, Tobias Meier, Raffaello D’Andrea},
       booktitle={Robotics: Science and Systems 2026},
       year={2026},
       url={https://openreview.net/forum?id=UaLgID9r1i}
