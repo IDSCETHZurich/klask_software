@@ -25,7 +25,7 @@
     # Caps |action_t - action_{t-1}| per axis to max_delta (m/s per inference step).
     # At inference_rate_hz this bounds acceleration to max_delta * inference_rate_hz (m/s^2).
     action_rate_clip_enabled: true
-    action_rate_clip_max_delta: 0.2
+    action_rate_clip_max_delta: 0.4
 
     # Optional EMA smoothing applied to the published action:
     #   smoothed = alpha * new + (1 - alpha) * smoothed_prev
@@ -34,11 +34,11 @@
     action_smoothing_alpha: 0.8
 
     # Action rescaling configuration (PPO only)
-    clip_actions: 0.4 # Action clipping bound
+    clip_actions: 0.8 # Action clipping bound
     enable_action_rescaling: true # Enable action rescaling from [-1,1] to [-clip_actions, clip_actions]
 
     # State machine configuration
-    interaction_delay: 2.0 # Delay in seconds befor continuing after the user interacted with the board
+    interaction_delay: 1.0 # Delay in seconds before continuing after the user interacted with the board
 
     # Motor commander configuration
     motor_commander_namespace: "/motor_commander" # Namespace for motor commander services

@@ -39,16 +39,7 @@ RUN mkdir -p $OVERLAY_WS/third_party
 
 # import third party repos into workspace
 COPY ros_env/res/third_party.repos /tmp/third_party.repos
-# TODO: Remove this entire RUN block once klask_hardware repo is public
-RUN --mount=type=ssh \
-    mkdir -p ~/.ssh && \
-    echo "Host github.com-MeierTobias" > ~/.ssh/config && \
-    echo "  HostName github.com" >> ~/.ssh/config && \
-    echo "  User git" >> ~/.ssh/config && \
-    ssh-keyscan github.com >> ~/.ssh/known_hosts && \
-    vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
-# TODO: Once repo is public, replace above RUN block with:
-# RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
+RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
 # Ignore packages that are not needed / cause trouble in the SDK 
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_imaging_pkg/COLCON_IGNORE || true
 RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_motor_commander_pkg/COLCON_IGNORE || true
