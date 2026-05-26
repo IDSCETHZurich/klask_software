@@ -1,7 +1,7 @@
 repositories:
   klask_hardware:
     type: git
-    url: git@github.com-MeierTobias:IDSCETHZurich/klask_hardware.git
+    url: https://github.com/IDSCETHZurich/klask_hardware.git
     version: db311ce144f23821aaaf911e41491afe0c77c9bc
   vision_opencv:
     type: git

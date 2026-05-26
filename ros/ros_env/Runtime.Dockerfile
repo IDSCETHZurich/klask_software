@@ -22,17 +22,7 @@ COPY ros_env/res/third_party.repos /tmp/third_party.repos
 
 # Import third-party repositories
 RUN mkdir -p $OVERLAY_WS/third_party
-# TODO: Remove this entire RUN block once klask_hardware repo is public
-RUN apt-get update && apt-get install -y openssh-client
-RUN --mount=type=ssh \
-    mkdir -p ~/.ssh && \
-    echo "Host github.com-MeierTobias" > ~/.ssh/config && \
-    echo "  HostName github.com" >> ~/.ssh/config && \
-    echo "  User git" >> ~/.ssh/config && \
-    ssh-keyscan github.com >> ~/.ssh/known_hosts && \
-    vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
-# TODO: Once repo is public, replace above RUN block with:
-# RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
+RUN vcs import $OVERLAY_WS/third_party < /tmp/third_party.repos
 
 # Copy source code
 COPY src $OVERLAY_WS/src
