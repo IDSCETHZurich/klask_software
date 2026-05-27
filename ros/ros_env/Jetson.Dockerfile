@@ -12,6 +12,10 @@ FROM $FROM_IMAGE
 ARG OVERLAY_WS=/opt/ros/klask_ws
 ARG TORCH_INDEX_URL
 
+# Refresh the ROS 2 apt signing key — the one baked into the base image has expired.
+RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg
+
 # install ros packages (same set as SDK.Dockerfile; python3-vcstool added for robustness)
 RUN apt update && apt install -y \
     ros-${ROS_DISTRO}-rqt \
