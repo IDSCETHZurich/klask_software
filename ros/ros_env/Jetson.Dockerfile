@@ -22,7 +22,8 @@ RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 # python3-opencv is dropped here (cv2 comes from the pip opencv-python below / the base).
 # The minimal ros-base ships the ROS runtime but omits build-side tooling the workspace
 # needs: the common message packages (common-interfaces), the interface-generation
-# toolchain (rosidl-default-generators/runtime), and the ament cmake/lint helpers.
+# toolchain (rosidl-default-generators/runtime), the ament cmake/lint helpers, and the
+# ros2 CLI command extensions (ros2cli-common-extensions -> ros2 launch/run/topic/node/...).
 RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-rqt \
     ros-${ROS_DISTRO}-rqt-common-plugins \
@@ -33,6 +34,7 @@ RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-ament-cmake-python \
     ros-${ROS_DISTRO}-ament-lint-auto \
     ros-${ROS_DISTRO}-ament-lint-common \
+    ros-${ROS_DISTRO}-ros2cli-common-extensions \
     gdb \
     python3-pip \
     python3-vcstool \
