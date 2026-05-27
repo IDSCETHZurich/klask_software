@@ -20,13 +20,19 @@ RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 # The L4T base already ships OpenCV (CUDA build), but rqt-common-plugins pulls cv_bridge
 # -> libopencv-dev from apt, whose files clash with it — so let dpkg overwrite them.
 # python3-opencv is dropped here (cv2 comes from the pip opencv-python below / the base).
-# common-interfaces is added: this minimal ros-base omits the message packages
-# (diagnostic_msgs, sensor_msgs, ...) that the workspace builds against.
+# The minimal ros-base ships the ROS runtime but omits build-side tooling the workspace
+# needs: the common message packages (common-interfaces), the interface-generation
+# toolchain (rosidl-default-generators/runtime), and the ament cmake/lint helpers.
 RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-rqt \
     ros-${ROS_DISTRO}-rqt-common-plugins \
     ros-${ROS_DISTRO}-foxglove-bridge \
     ros-${ROS_DISTRO}-common-interfaces \
+    ros-${ROS_DISTRO}-rosidl-default-generators \
+    ros-${ROS_DISTRO}-rosidl-default-runtime \
+    ros-${ROS_DISTRO}-ament-cmake-python \
+    ros-${ROS_DISTRO}-ament-lint-auto \
+    ros-${ROS_DISTRO}-ament-lint-common \
     gdb \
     python3-pip \
     python3-vcstool \
