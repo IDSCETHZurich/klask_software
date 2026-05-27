@@ -1,10 +1,13 @@
 # Jetson (aarch64 / L4T) variant of SDK.Dockerfile. Differs only in the L4T base image
-# (ships CUDA + ROS) and the aarch64 torch wheel; the desktop cu124 wheel won't work here.
+# (ships CUDA + ROS) and the aarch64 torch wheel; the SDK's x86 cu124 wheel won't work here.
 # Build on the Jetson: cd ros && ./ros_env/klask_docker_helper.sh -j build
 # Run via the helper (-j) so the GPU is passed through with --runtime nvidia.
 
-# L4T ROS Humble base. r36.3.0 is the newest dustynv r36 tag and runs on r36.5 hosts.
-ARG FROM_IMAGE=dustynv/ros:humble-ros-base-l4t-r36.3.0
+# L4T ROS Humble desktop base. The desktop variant bundles the full ROS toolset (rqt,
+# rviz, all message packages, rosidl generators, ament tooling, the ros2 CLI) so we don't
+# have to re-add them. r36.4.0 = CUDA 12.6 + cuDNN 9, which matches the torch wheel below
+# (the smaller ros-base only goes to r36.3.0 = CUDA 12.2/cuDNN 8, which torch no longer fits).
+ARG FROM_IMAGE=dustynv/ros:humble-desktop-l4t-r36.4.0
 # aarch64 CUDA torch wheel index for JetPack 6 / CUDA 12.6 (use the jp5 index for JetPack 5).
 ARG TORCH_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126
 
@@ -28,24 +31,12 @@ RUN apt update && apt install -y \
     openssh-client && \
     rm -rf /var/lib/apt/lists/*
 
-# ROS packages. The minimal ros-base ships the ROS runtime but omits build-side tooling
-# the workspace needs: the common message packages (common-interfaces), the interface-
-# generation toolchain (rosidl-default-generators/runtime), the ament cmake/lint helpers,
-# and the ros2 CLI command extensions (ros2cli-common-extensions -> ros2 launch/run/...).
-# rqt-common-plugins pulls cv_bridge -> libopencv-dev, whose files clash with the base's
-# prebuilt CUDA OpenCV, so let dpkg overwrite them. (python3-opencv is intentionally not
-# installed; cv2 comes from the pip opencv-python below / the base.)
+# ROS packages. The desktop base already bundles rqt, the message packages, the rosidl
+# generators, ament tooling and the full ros2 CLI, so only foxglove-bridge is left to add.
+# --force-overwrite guards against any apt OpenCV files clashing with the base's prebuilt
+# CUDA OpenCV. (python3-opencv is intentionally not installed; cv2 comes from the base.)
 RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
-    ros-${ROS_DISTRO}-rqt \
-    ros-${ROS_DISTRO}-rqt-common-plugins \
-    ros-${ROS_DISTRO}-foxglove-bridge \
-    ros-${ROS_DISTRO}-common-interfaces \
-    ros-${ROS_DISTRO}-rosidl-default-generators \
-    ros-${ROS_DISTRO}-rosidl-default-runtime \
-    ros-${ROS_DISTRO}-ament-cmake-python \
-    ros-${ROS_DISTRO}-ament-lint-auto \
-    ros-${ROS_DISTRO}-ament-lint-common \
-    ros-${ROS_DISTRO}-ros2cli-common-extensions && \
+    ros-${ROS_DISTRO}-foxglove-bridge && \
     rm -rf /var/lib/apt/lists/*
 
 # install python packages
