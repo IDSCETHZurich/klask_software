@@ -1,35 +1,12 @@
-# Jetson SDK image — mirrors SDK.Dockerfile but targets NVIDIA Jetson (aarch64 / L4T).
-#
-# Why this is a separate Dockerfile from SDK.Dockerfile:
-#   1. Architecture: the regular SDK/Runtime images are built for linux/amd64 and the
-#      desktop CUDA torch wheels (download.pytorch.org/whl/cu124) do not exist for
-#      aarch64 and cannot drive the Jetson's integrated (Tegra) GPU.
-#   2. Base image: we start from a Jetson-Linux (L4T) ROS image that ships the CUDA
-#      runtime, instead of the generic ros:humble. CUDA driver libs are injected from
-#      the host at *run* time by the NVIDIA container runtime (see run instructions).
-#   3. PyTorch: installed from the Jetson aarch64 CUDA wheel index, not the cu124 index.
-#
-# Target host (from `dpkg -l | grep nvidia-l4t-core` -> 36.5.0):
-#   L4T r36.5 / JetPack 6.2, Ubuntu 22.04 (jammy), CUDA 12.6, Python 3.10.>
-#   ROS Humble is native to 22.04, so the rest of the SDK config carries over unchanged.
-#
-# Build (run ON the Jetson, with build context = the ros/ directory):
-#   cd ros
-#   docker build -f ros_env/Jetson.Dockerfile -t klask_ros_software_sdk:jetson .
-#
-# Run (the NVIDIA runtime mounts the host CUDA libs so the GPU is visible):
-#   docker run --rm -it --runtime nvidia --network host \
-#     -v "$PWD/src:/opt/ros/klask_ws/src" klask_ros_software_sdk:jetson
-#   # On most JetPack installs the default docker runtime is already "nvidia".
-#   # Set device: "cuda" in klask_player_pkg/config/player_params.yaml to use the GPU.
+# Jetson (aarch64 / L4T) variant of SDK.Dockerfile. Differs only in the L4T base image
+# (ships CUDA + ROS) and the aarch64 torch wheel; the desktop cu124 wheel won't work here.
+# Build on the Jetson: cd ros && ./ros_env/klask_docker_helper.sh -j build
+# Run via the helper (-j) so the GPU is passed through with --runtime nvidia.
 
-# Jetson-Linux ROS Humble base (ships CUDA runtime + ROS). Pick the tag matching your
-# L4T: r36.4.0 is the closest published JetPack-6 tag and is compatible with r36.5 hosts.
-# Alternatives: nvcr.io/nvidia/l4t-jetpack:r36.4.0 (then install ROS yourself).
-ARG FROM_IMAGE=dustynv/ros:humble-ros-base-r36.4.0
-# aarch64 CUDA torch wheel index for JetPack 6 / CUDA 12.6 (cp310).
-# If you are actually on JetPack 5 (CUDA 11.4) use the jp5 index instead.
-ARG TORCH_INDEX_URL=https://pypi.jetson-ai-lab.dev/jp6/cu126
+# L4T ROS Humble base. r36.3.0 is the newest dustynv r36 tag and runs on r36.5 hosts.
+ARG FROM_IMAGE=dustynv/ros:humble-ros-base-l4t-r36.3.0
+# aarch64 CUDA torch wheel index for JetPack 6 / CUDA 12.6 (use the jp5 index for JetPack 5).
+ARG TORCH_INDEX_URL=https://pypi.jetson-ai-lab.io/jp6/cu126
 
 FROM $FROM_IMAGE
 ARG OVERLAY_WS=/opt/ros/klask_ws
@@ -56,10 +33,7 @@ RUN pip install --upgrade pip
 RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
     /usr/local/lib/python3*/dist-packages/sympy* \
     /usr/lib/python3.*/dist-packages/sympy* || true
-# Install PyTorch with CUDA support — Jetson (aarch64) wheel, NOT the desktop cu124 wheel.
-# Only `torch` is imported by the source, so torchvision/torchaudio are intentionally
-# omitted (add them from the same index if you need them). The Jetson base image may
-# already bundle a torch build; this line pins it to the wheel matching your JetPack.
+# Install PyTorch from the Jetson aarch64 CUDA index (torchvision/torchaudio unused here).
 RUN pip install torch --index-url ${TORCH_INDEX_URL}
 # Install other requirements
 COPY ros_env/res/requirements.txt /tmp/requirements.txt
