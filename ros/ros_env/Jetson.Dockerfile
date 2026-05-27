@@ -16,14 +16,25 @@ ARG TORCH_INDEX_URL
 RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
     -o /usr/share/keyrings/ros-archive-keyring.gpg
 
-# ros packages (same set as SDK.Dockerfile; python3-vcstool added for robustness).
-# The L4T base already ships OpenCV (CUDA build), but rqt-common-plugins pulls cv_bridge
-# -> libopencv-dev from apt, whose files clash with it — so let dpkg overwrite them.
-# python3-opencv is dropped here (cv2 comes from the pip opencv-python below / the base).
-# The minimal ros-base ships the ROS runtime but omits build-side tooling the workspace
-# needs: the common message packages (common-interfaces), the interface-generation
-# toolchain (rosidl-default-generators/runtime), the ament cmake/lint helpers, and the
-# ros2 CLI command extensions (ros2cli-common-extensions -> ros2 launch/run/topic/node/...).
+# Base / system dependencies (same non-ROS set as SDK.Dockerfile; python3-vcstool added
+# for robustness). Kept in its own layer so editing the ROS list below doesn't re-run it.
+RUN apt update && apt install -y \
+    gdb \
+    python3-pip \
+    python3-vcstool \
+    libboost-python-dev \
+    iproute2 \
+    clang-format \
+    openssh-client && \
+    rm -rf /var/lib/apt/lists/*
+
+# ROS packages. The minimal ros-base ships the ROS runtime but omits build-side tooling
+# the workspace needs: the common message packages (common-interfaces), the interface-
+# generation toolchain (rosidl-default-generators/runtime), the ament cmake/lint helpers,
+# and the ros2 CLI command extensions (ros2cli-common-extensions -> ros2 launch/run/...).
+# rqt-common-plugins pulls cv_bridge -> libopencv-dev, whose files clash with the base's
+# prebuilt CUDA OpenCV, so let dpkg overwrite them. (python3-opencv is intentionally not
+# installed; cv2 comes from the pip opencv-python below / the base.)
 RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-rqt \
     ros-${ROS_DISTRO}-rqt-common-plugins \
@@ -34,14 +45,7 @@ RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-ament-cmake-python \
     ros-${ROS_DISTRO}-ament-lint-auto \
     ros-${ROS_DISTRO}-ament-lint-common \
-    ros-${ROS_DISTRO}-ros2cli-common-extensions \
-    gdb \
-    python3-pip \
-    python3-vcstool \
-    libboost-python-dev \
-    iproute2 \
-    clang-format \
-    openssh-client && \
+    ros-${ROS_DISTRO}-ros2cli-common-extensions && \
     rm -rf /var/lib/apt/lists/*
 
 # install python packages
