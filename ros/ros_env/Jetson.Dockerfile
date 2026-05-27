@@ -16,15 +16,17 @@ ARG TORCH_INDEX_URL
 RUN curl -fsSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
     -o /usr/share/keyrings/ros-archive-keyring.gpg
 
-# install ros packages (same set as SDK.Dockerfile; python3-vcstool added for robustness)
-RUN apt update && apt install -y \
+# ros packages (same set as SDK.Dockerfile; python3-vcstool added for robustness).
+# The L4T base already ships OpenCV (CUDA build), but rqt-common-plugins pulls cv_bridge
+# -> libopencv-dev from apt, whose files clash with it — so let dpkg overwrite them.
+# python3-opencv is dropped here (cv2 comes from the pip opencv-python below / the base).
+RUN apt update && apt install -y -o Dpkg::Options::="--force-overwrite" \
     ros-${ROS_DISTRO}-rqt \
     ros-${ROS_DISTRO}-rqt-common-plugins \
     ros-${ROS_DISTRO}-foxglove-bridge \
     gdb \
     python3-pip \
     python3-vcstool \
-    python3-opencv \
     libboost-python-dev \
     iproute2 \
     clang-format \
