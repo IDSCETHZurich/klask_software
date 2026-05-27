@@ -68,7 +68,9 @@ RUN touch $OVERLAY_WS/third_party/klask_hardware/ros/src/klask_system_id_pkg/COL
 
 # auto source ROS setup.bash
 RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc
-# auto source workspace overlay if one exists
-RUN echo "\n if [ -f $OVERLAY_WS/install/setup.bash ]; then\n source $OVERLAY_WS/install/setup.bash\n fi\n" >> ~/.bashrc
+# auto source workspace overlay if one exists (printf, not echo: bash's echo would write
+# the \n literally on this base image, producing a broken .bashrc line)
+RUN printf '\nif [ -f %s/install/setup.bash ]; then\n  source %s/install/setup.bash\nfi\n' \
+    "$OVERLAY_WS" "$OVERLAY_WS" >> ~/.bashrc
 
 WORKDIR $OVERLAY_WS
