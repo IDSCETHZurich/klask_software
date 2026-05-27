@@ -41,9 +41,10 @@ RUN rm -rf /usr/lib/python3/dist-packages/sympy* \
     /usr/lib/python3.*/dist-packages/sympy* || true
 # Install PyTorch from the Jetson aarch64 CUDA index (torchvision/torchaudio unused here).
 RUN pip install torch --index-url ${TORCH_INDEX_URL}
-# Install other requirements
+# Install other requirements. The base image's default pip index is a Jetson mirror
+# (only carries CUDA-specific wheels), so fetch these generic wheels from PyPI explicitly.
 COPY ros_env/res/requirements.txt /tmp/requirements.txt
-RUN pip install -r /tmp/requirements.txt
+RUN pip install --index-url https://pypi.org/simple -r /tmp/requirements.txt
 
 # setup colcon extensions
 RUN echo "source /usr/share/colcon_cd/function/colcon_cd.sh" >> ~/.bashrc
