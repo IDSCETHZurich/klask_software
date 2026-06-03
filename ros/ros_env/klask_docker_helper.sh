@@ -12,7 +12,7 @@ NS="software"
 # Bash completion support
 if [[ "$1" == "--completion" ]]; then
     _klask_docker_completions() {
-        local commands="build run connect stop status --runtime -r"
+        local commands="build run connect stop status --runtime -r --jetson -j"
         COMPREPLY=($(compgen -W "$commands" -- "${COMP_WORDS[1]}"))
     }
     # Register for various ways the script might be called
@@ -28,27 +28,57 @@ set -e
 # Get the directory of this script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-# Parse mode flag and configure
+# Parse leading mode flags (order-independent) and configure
 MODE="sdk"  # Default mode
 MODE_FLAG=""
-if [[ "$1" == "--runtime" ]] || [[ "$1" == "-r" ]]; then
-    MODE="runtime"
-    MODE_FLAG="--runtime "
-    shift  # Remove the flag from arguments
-fi
+JETSON=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --runtime|-r)
+            MODE="runtime"
+            MODE_FLAG="${MODE_FLAG}--runtime "
+            shift  # Remove the flag from arguments
+            ;;
+        --jetson|-j)
+            JETSON=true
+            MODE_FLAG="${MODE_FLAG}--jetson "
+            shift  # Remove the flag from arguments
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# GPU passthrough differs on Jetson: the integrated (Tegra) GPU is exposed via the
+# NVIDIA container runtime, not the desktop --gpus flag.
+GPU_ARGS="--gpus=all"
 
 # Configuration based on mode
-if [[ "$MODE" == "runtime" ]]; then
+if [[ "$JETSON" == true ]]; then
+    # Jetson only ships an SDK-equivalent image (Jetson.Dockerfile, aarch64 + L4T CUDA).
+    if [[ "$MODE" == "runtime" ]]; then
+        echo -e "${YELLOW}No Jetson runtime image exists; using the Jetson SDK image instead.${NC}"
+        MODE="sdk"
+        MODE_FLAG="--jetson "
+    fi
+    IMAGE_NAME="klask_ros_${NS}_sdk"
+    DOCKERFILE="Jetson.Dockerfile"
+    MODE_DISPLAY="Jetson SDK"
+    TAG="jetson"
+    GPU_ARGS="--runtime nvidia"  # requires the nvidia runtime (default on JetPack)
+elif [[ "$MODE" == "runtime" ]]; then
     IMAGE_NAME="klask_ros_${NS}_runtime"
     DOCKERFILE="Runtime.Dockerfile"
     MODE_DISPLAY="Runtime"
+    TAG="local"
 else
     IMAGE_NAME="klask_ros_${NS}_sdk"
     DOCKERFILE="SDK.Dockerfile"
     MODE_DISPLAY="SDK"
+    TAG="local"
 fi
 
-TAG="local"
 CONTAINER_NAME="${IMAGE_NAME}_container_${TAG}"
 VIDEO_DEVICE="/dev/video0"
 
@@ -59,10 +89,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 print_usage() {
-    echo "Usage: $0 [--runtime|-r] <command> [args...]"
+    echo "Usage: $0 [--runtime|-r | --jetson|-j] <command> [args...]"
     echo ""
     echo "Flags:"
     echo "  --runtime, -r  Use Runtime container instead of SDK (default: SDK)"
+    echo "  --jetson,  -j  Build/run the Jetson SDK image (aarch64 + L4T CUDA,"
+    echo "                 Jetson.Dockerfile, --runtime nvidia GPU passthrough)"
     echo ""
     echo "Commands:"
     echo "  build    Build the Docker image"
@@ -79,6 +111,9 @@ print_usage() {
     echo "  $0 -r run --player left               # Run with left player only"
     echo "  $0 -r run --player right --no-viewer  # Run right player without viewer"
     echo "  $0 -r run --no-viewer                 # Run both players without viewer"
+    echo "  $0 -j build                           # Build Jetson SDK image (run on the Jetson)"
+    echo "  $0 -j run                             # Run Jetson SDK container"
+    echo "  $0 -j connect                         # Connect to the Jetson SDK container"
     echo ""
 }
 
@@ -111,9 +146,11 @@ cmd_run() {
             --env="DISPLAY" \
             --env="QT_X11_NO_MITSHM=1" \
             --env="ROS_DOMAIN_ID=0" \
+            --env="HISTFILE=/root/.shell_history/.bash_history" \
             --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
             --volume="${CONTAINER_NAME}_nn_weights:/opt/ros/klask_ws/nn_weights:rw" \
-            --gpus=all \
+            --volume="${CONTAINER_NAME}_shell_history:/root/.shell_history:rw" \
+            ${GPU_ARGS} \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}" "$@"
     else
@@ -123,6 +160,7 @@ cmd_run() {
             --env="DISPLAY" \
             --env="QT_X11_NO_MITSHM=1" \
             --env="ROS_DOMAIN_ID=0" \
+            --env="HISTFILE=/root/.shell_history/.bash_history" \
             --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
             --volume="$SCRIPT_DIR/../src:/opt/ros/klask_ws/src:rw" \
             --volume="$SCRIPT_DIR/../.vscode:/opt/ros/klask_ws/.vscode:rw" \
@@ -133,7 +171,8 @@ cmd_run() {
             --volume="${CONTAINER_NAME}_install:/opt/ros/klask_ws/install:rw" \
             --volume="${CONTAINER_NAME}_log:/opt/ros/klask_ws/log:rw" \
             --volume="${CONTAINER_NAME}_nn_weights:/opt/ros/klask_ws/nn_weights:rw" \
-            --gpus=all \
+            --volume="${CONTAINER_NAME}_shell_history:/root/.shell_history:rw" \
+            ${GPU_ARGS} \
             --name="${CONTAINER_NAME}" \
             "${IMAGE_NAME}:${TAG}"
     fi
